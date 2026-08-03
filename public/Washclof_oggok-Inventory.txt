@@ -1,0 +1,314 @@
+Location	Name	ID	Count	Slots
+Any Slot	Wooden Shield +4	9006	1	10
+Any Slot-Slot2	Empty	0	0	0
+Any Slot-Slot7	Empty	0	0	0
+Any Slot-Slot8	Empty	0	0	0
+Any Slot-Slot9	Empty	0	0	0
+Any Slot-Slot10	Empty	0	0	0
+Ear	Brass Earring +3	10351	1	10
+Ear-Slot7	Empty	0	0	0
+Ear-Slot8	Empty	0	0	0
+Ear-Slot9	Empty	0	0	0
+Head	Raw-Hide Skullcap +2	2137	1	10
+Head-Slot2	Empty	0	0	0
+Head-Slot7	Empty	0	0	0
+Head-Slot8	Empty	0	0	0
+Face	Cloth Veil +4	1002	1	10
+Face-Slot7	Empty	0	0	0
+Face-Slot8	Empty	0	0	0
+Face-Slot9	Empty	0	0	0
+Face-Slot10	Empty	0	0	0
+Ear	Empty	0	0	0
+Neck	Wood Elf Scout Bauble +2	177851	1	10
+Neck-Slot7	Empty	0	0	0
+Neck-Slot8	Empty	0	0	0
+Shoulders	Crushbone Shoulderpads +5	13319	1	10
+Shoulders-Slot7	Empty	0	0	0
+Shoulders-Slot8	Empty	0	0	0
+Shoulders-Slot9	Empty	0	0	0
+Shoulders-Slot10	Empty	0	0	0
+Arms	Pristine Studded Leather Sleeves +2	1884	1	10
+Arms-Slot2	Empty	0	0	0
+Arms-Slot7	Empty	0	0	0
+Arms-Slot8	Empty	0	0	0
+Back	Torn Elvish Tapestry +2	177862	1	10
+Back-Slot7	Empty	0	0	0
+Back-Slot8	Empty	0	0	0
+Wrist	Legionnaire's Bracer +7	2299	1	10
+Wrist-Slot2	Empty	0	0	0
+Wrist-Slot7	Empty	0	0	0
+Wrist-Slot8	Empty	0	0	0
+Wrist-Slot9	Empty	0	0	0
+Wrist-Slot10	Empty	0	0	0
+Wrist	Cloth Wristband +5	1009	1	10
+Wrist-Slot2	Empty	0	0	0
+Wrist-Slot7	Empty	0	0	0
+Wrist-Slot8	Empty	0	0	0
+Wrist-Slot9	Empty	0	0	0
+Wrist-Slot10	Empty	0	0	0
+Range	Deterioriated Ancient Faydark Longbow +4	177863	1	10
+Range-Slot1	Empty	0	0	0
+Range-Slot7	Empty	0	0	0
+Range-Slot8	Empty	0	0	0
+Range-Slot9	Empty	0	0	0
+Range-Slot10	Empty	0	0	0
+Hands	Pristine Studded Leather Gloves +5	1885	1	10
+Hands-Slot2	Empty	0	0	0
+Hands-Slot7	Empty	0	0	0
+Hands-Slot8	Empty	0	0	0
+Hands-Slot9	Empty	0	0	0
+Hands-Slot10	Empty	0	0	0
+Primary	Shimmering Ruby Stiletto +3	5820	1	10
+Primary-Slot2	Empty	0	0	0
+Primary-Slot7	Empty	0	0	0
+Primary-Slot8	Empty	0	0	0
+Primary-Slot9	Empty	0	0	0
+Secondary	The Baron's Blade +3	177773	1	10
+Secondary-Slot1	Empty	0	0	0
+Secondary-Slot7	Empty	0	0	0
+Secondary-Slot8	Empty	0	0	0
+Secondary-Slot9	Empty	0	0	0
+Fingers	Platinum Ring +4	13734	1	10
+Fingers-Slot7	Empty	0	0	0
+Fingers-Slot8	Empty	0	0	0
+Fingers-Slot9	Empty	0	0	0
+Fingers-Slot10	Empty	0	0	0
+Fingers	Copper Ring +2	13733	1	10
+Fingers-Slot7	Empty	0	0	0
+Fingers-Slot8	Empty	0	0	0
+Chest	Pristine Studded Leather Tunic +4	1880	1	10
+Chest-Slot2	Empty	0	0	0
+Chest-Slot7	Empty	0	0	0
+Chest-Slot8	Empty	0	0	0
+Chest-Slot9	Empty	0	0	0
+Chest-Slot10	Empty	0	0	0
+Legs	Pristine Studded Leather Leggings +4	1882	1	10
+Legs-Slot2	Empty	0	0	0
+Legs-Slot7	Empty	0	0	0
+Legs-Slot8	Empty	0	0	0
+Legs-Slot9	Empty	0	0	0
+Legs-Slot10	Empty	0	0	0
+Feet	Pristine Studded Leather Boots +2	1883	1	10
+Feet-Slot2	Empty	0	0	0
+Feet-Slot7	Empty	0	0	0
+Feet-Slot8	Empty	0	0	0
+Waist	Crushbone Belt +6	13318	1	10
+Waist-Slot7	Empty	0	0	0
+Waist-Slot8	Empty	0	0	0
+Waist-Slot9	Empty	0	0	0
+Waist-Slot10	Empty	0	0	0
+Any Slot	Round Shield +2	9002	1	10
+Any Slot-Slot2	Empty	0	0	0
+Any Slot-Slot7	Empty	0	0	0
+Any Slot-Slot8	Empty	0	0	0
+Ammo	Empty	0	0	0
+General 1	Backpack*	32601	1	8
+General 1-Slot1	Bread Cakes*	9991	9	10
+General 1-Slot2	Skin of Milk	9990	9	10
+General 1-Slot3	Bandages*	21779	20	10
+General 1-Slot4	Empty	0	0	0
+General 1-Slot5	Empty	0	0	0
+General 1-Slot6	Empty	0	0	0
+General 1-Slot7	Empty	0	0	0
+General 1-Slot8	Golem Metal Wand +4	14313	1	10
+General 1-Slot8-Slot7	Empty	0	0	0
+General 1-Slot8-Slot8	Golem Metal Wand (Exaltation)	14313	1	10
+General 1-Slot8-Slot9	Empty	0	0	0
+General 1-Slot8-Slot10	Empty	0	0	0
+General 2	Backpack*	32601	1	8
+General 2-Slot1	Empty	0	0	0
+General 2-Slot2	Empty	0	0	0
+General 2-Slot3	Empty	0	0	0
+General 2-Slot4	Empty	0	0	0
+General 2-Slot5	Empty	0	0	0
+General 2-Slot6	Empty	0	0	0
+General 2-Slot7	Empty	0	0	0
+General 2-Slot8	Empty	0	0	0
+General 3	Backpack	17005	1	8
+General 3-Slot1	Empty	0	0	0
+General 3-Slot2	Empty	0	0	0
+General 3-Slot3	Empty	0	0	0
+General 3-Slot4	Empty	0	0	0
+General 3-Slot5	Empty	0	0	0
+General 3-Slot6	Empty	0	0	0
+General 3-Slot7	Empty	0	0	0
+General 3-Slot8	Empty	0	0	0
+General 4	Backpack*	32601	1	8
+General 4-Slot1	Empty	0	0	0
+General 4-Slot2	Empty	0	0	0
+General 4-Slot3	Empty	0	0	0
+General 4-Slot4	Empty	0	0	0
+General 4-Slot5	Empty	0	0	0
+General 4-Slot6	Empty	0	0	0
+General 4-Slot7	Empty	0	0	0
+General 4-Slot8	Empty	0	0	0
+General 5	Backpack	17005	1	8
+General 5-Slot1	Empty	0	0	0
+General 5-Slot2	Empty	0	0	0
+General 5-Slot3	Empty	0	0	0
+General 5-Slot4	Shackle Key 18	20018	1	10
+General 5-Slot5	Splintered Wooden Key	20361	1	10
+General 5-Slot6	Master Crushbone Cell Key	27539	1	10
+General 5-Slot7	Charred Bone Key	20362	1	10
+General 5-Slot8	Smoked Glass Key	20363	1	10
+General 6	Backpack	17005	1	8
+General 6-Slot1	Empty	0	0	0
+General 6-Slot2	Empty	0	0	0
+General 6-Slot3	Empty	0	0	0
+General 6-Slot4	Empty	0	0	0
+General 6-Slot5	Empty	0	0	0
+General 6-Slot6	Empty	0	0	0
+General 6-Slot7	Empty	0	0	0
+General 6-Slot8	Empty	0	0	0
+General 7	Backpack	17005	1	8
+General 7-Slot1	Empty	0	0	0
+General 7-Slot2	Empty	0	0	0
+General 7-Slot3	Empty	0	0	0
+General 7-Slot4	Empty	0	0	0
+General 7-Slot5	Empty	0	0	0
+General 7-Slot6	Empty	0	0	0
+General 7-Slot7	Empty	0	0	0
+General 7-Slot8	Empty	0	0	0
+General 8	Backpack	17005	1	8
+General 8-Slot1	Empty	0	0	0
+General 8-Slot2	Empty	0	0	0
+General 8-Slot3	Empty	0	0	0
+General 8-Slot4	Empty	0	0	0
+General 8-Slot5	Empty	0	0	0
+General 8-Slot6	Empty	0	0	0
+General 8-Slot7	Empty	0	0	0
+General 8-Slot8	Empty	0	0	0
+General 9	Empty	0	0	0
+General 10	Empty	0	0	0
+General 11	Empty	0	0	0
+General 12	Empty	0	0	0
+Held	Empty	0	0	0
+Bank1	Golem Metal Wand +2	14313	1	10
+Bank1-Slot7	Empty	0	0	0
+Bank1-Slot8	Golem Metal Wand (Exaltation)	14313	1	10
+Bank2	Letter For Doug	177705	1	10
+Bank3	Empty	0	0	0
+Bank4	Empty	0	0	0
+Bank5	Chipped Bone Rod +2	14510	1	10
+Bank5-Slot7	Empty	0	0	0
+Bank6	Unfinished Sledge Mold	13851	1	10
+Bank7	Empty	0	0	0
+Bank8	Empty	0	0	0
+Bank9	Sarialiyn's Lute	27540	1	10
+Bank10	Unfinished Blade Mold	13850	1	10
+Bank11	Empty	0	0	0
+Bank12	Empty	0	0	0
+Bank13	Bone Chips	13073	120	10
+Bank14	Empty	0	0	0
+Bank15	Empty	0	0	0
+Bank16	Empty	0	0	0
+Bank17	Empty	0	0	0
+Bank18	Empty	0	0	0
+Bank19	Empty	0	0	0
+Bank20	Empty	0	0	0
+Bank21	Empty	0	0	0
+Bank22	Empty	0	0	0
+Bank23	Empty	0	0	0
+Bank24	Empty	0	0	0
+SharedBank1	Empty	0	0	0
+SharedBank2	Empty	0	0	0
+SharedBank3	Empty	0	0	0
+SharedBank4	Empty	0	0	0
+SharedBank5	Empty	0	0	0
+SharedBank6	Empty	0	0	0
+Hoard 1	Ringmail Gloves	3110	1	10
+Hoard 1-Slot2	Empty	0	0	0
+Hoard 2	Ringmail Coat	3104	1	10
+Hoard 2-Slot2	Empty	0	0	0
+Hoard 3	Small Ringmail Belt	3119	1	10
+Hoard 4	Fine Steel Two Handed Sword	5351	1	10
+Hoard 4-Slot2	Empty	0	0	0
+Hoard 5	Ringmail Mantle	3105	1	10
+Hoard 6	Ringmail Boots	3112	1	10
+Hoard 6-Slot2	Empty	0	0	0
+Hoard 7	Icon of the Ardent	19004	1	10
+Hoard 8	Fine Steel Warhammer	6350	1	10
+Hoard 8-Slot2	Empty	0	0	0
+Hoard 9	Fine Steel Scimitar	5353	1	10
+Hoard 9-Slot2	Empty	0	0	0
+Hoard 10	Ringmail Pants	3111	1	10
+Hoard 10-Slot2	Empty	0	0	0
+Hoard 11	Fine Steel Rapier	7352	1	10
+Hoard 11-Slot2	Empty	0	0	0
+Hoard 12	Ringmail Coif	3101	1	10
+Hoard 12-Slot2	Empty	0	0	0
+Hoard 13	Iron Visor	3102	1	10
+Hoard 14	Slave Trammels +2	177868	1	10
+Hoard 14-Slot1	Empty	0	0	0
+Hoard 14-Slot7	Empty	0	0	0
+Hoard 14-Slot8	Empty	0	0	0
+Hoard 15	Deterioriated Ancient Faydark Longbow +2	177863	1	10
+Hoard 15-Slot1	Empty	0	0	0
+Hoard 15-Slot7	Empty	0	0	0
+Hoard 15-Slot8	Empty	0	0	0
+Hoard 16	Headsplitter +2	177854	1	10
+Hoard 16-Slot1	Empty	0	0	0
+Hoard 16-Slot7	Empty	0	0	0
+Hoard 16-Slot8	Empty	0	0	0
+Hoard 17	Bracers of Battle	2301	1	10
+Hoard 17-Slot2	Empty	0	0	0
+Hoard 18	Sarialiyn's Lute	27540	1	10
+Hoard 19	Corroded Hand Guards +1	177864	1	10
+Hoard 19-Slot1	Empty	0	0	0
+Hoard 19-Slot7	Empty	0	0	0
+Hoard 20	Ringmail Neckguard +2	3103	1	10
+Hoard 20-Slot7	Empty	0	0	0
+Hoard 20-Slot8	Empty	0	0	0
+Hoard 21	Ringmail Sleeves +2	3108	1	10
+Hoard 21-Slot2	Empty	0	0	0
+Hoard 21-Slot7	Empty	0	0	0
+Hoard 21-Slot8	Empty	0	0	0
+Personal-Depot1	Bone Chips	13073	23	10
+
+KeyRing	Name	ID	
+Equipment	Rusty Rapier +3	7008
+Equipment	Rusty Long Sword +5	5019
+Equipment	Gossamer Robe +5	1307
+Equipment	Screaming Mace +1	6305
+Equipment	Rusty Broad Sword +4	5016
+Equipment	Rusty Axe +4	5014
+Equipment	Rusty Fer`Esh	5074
+Equipment	Rusty Scimitar +3	5021
+Equipment	Bronze Shortened Spear +4	7016
+Equipment	Rusty Spear +4	7009
+Equipment	Rusty Shortened Spear +4	7010
+Equipment	Bronze Spear +4	7014
+Equipment	Iron Cudgel of the Petitioner	5140
+Equipment	Rusty Short Sword +4	5013
+Equipment	Bronze Rapier +4	7013
+Equipment	Bronze Claymore +2	5036
+Equipment	Bronze Long Sword +3	5027
+Equipment	Dagger of Marnek +5	13169
+Equipment	Bronze Short Sword +2	5026
+Equipment	Rusty Dagger +6	7007
+Equipment	Rusty Mace +4	6011
+Equipment	Rusty Warhammer +4	6014
+Equipment	Enchanted Fine Steel Great Staff +2	5215
+Equipment	Disgusting Padded Shirt	177859
+Equipment	Ringmail Cape +2	3106
+Equipment	Fine Steel Warhammer	6350
+Equipment	Parrying Dagger +3	9008
+Equipment	Antiqued Silver Band +4	10350
+Equipment	Silver Plated War Sword +4	1876
+Equipment	Boots of the Long Road +2	177708
+Equipment	Damask Robe +3	1334
+Equipment	Splintering Club +4	6017
+Equipment	Bronze Knuckles +4	30981
+Equipment	Rusty Mining Pick +7	5040
+Equipment	Thaumaturgist's Robe +4	1322
+Equipment	Wood Elf Scout Shoes +2	177850
+Equipment	Crown of Crush +2	177867
+Equipment	Thaumaturgist's Sash +2	177772
+Equipment	Blackened Wand +4	13237
+Equipment	Bandolier of Teeth +2	177853
+Equipment	Skeletal Rod +5	177774
+Equipment	Armband of Serrated Teeth +2	177856
+Equipment	Pristine Studded Leather Bracer +4	1881
+Equipment	Grimy Black Silk Robe +3	177860
+Equipment	A Worn Candle	9979
+Equipment	Dragoon Dirk +2	13942

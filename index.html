@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>EQL BiS Finder — EverQuest Legends Best in Slot Planner</title>
+  <meta name="description" content="Upload your EverQuest Legends inventory, pick your trio, and see what you're wearing, the best gear you own, and the best gear obtainable — per slot, with drop zones." />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+
+  <!-- Paint the themed background before first render so there's no white flash. -->
+  <script data-cf-async="false">
+    (function () {
+      try {
+        var m = localStorage.getItem('eqlbis.mode.v1');
+        if (m !== 'light') m = 'dark';
+        document.documentElement.style.backgroundColor = m === 'dark' ? '#15171b' : '#e3d7bd';
+      } catch (e) {}
+    })();
+  </script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div id="root"></div>
+  <script type="module" src="/src/main.tsx"></script>
+</body>
+</html>
