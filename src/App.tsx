@@ -14,17 +14,22 @@ const CINZEL = "Cinzel, serif"
 
 // Acquisition channels for the Obtained By filter. An item can have several
 // (e.g. dropped + crafted); it's excluded only when every channel it has is
-// deselected. Items with no known channel always pass.
-const OBTAIN: [string, string][] = [['drop', 'Dropped'], ['vendor', 'Vendor sold'], ['crafted', 'Crafted'], ['quest', 'Quest']]
+// deselected. Items the wiki lists no source for at all (often not actually
+// in game) get the 'unknown' channel, which is off by default.
+const OBTAIN: [string, string][] = [['drop', 'Dropped'], ['vendor', 'Vendor sold'], ['crafted', 'Crafted'], ['quest', 'Quest'], ['unknown', 'Unknown source']]
+const DEFAULT_OBT_OFF = ['unknown']
 
 // How many of each slot a character wears (2 Any Slot per the inventory export)
 const SLOT_CAP: Record<string, number> = { Ear: 2, Wrist: 2, Fingers: 2, 'Any Slot': 2 }
-const obtainChannels = (ci: Item) => [
-  ...(ci.zones.length ? ['drop'] : []),
-  ...(ci.flags.includes('VENDOR') ? ['vendor'] : []),
-  ...(ci.flags.includes('CRAFTED') ? ['crafted'] : []),
-  ...(ci.flags.includes('QUEST') ? ['quest'] : []),
-]
+const obtainChannels = (ci: Item) => {
+  const c = [
+    ...(ci.zones.length ? ['drop'] : []),
+    ...(ci.flags.includes('VENDOR') ? ['vendor'] : []),
+    ...(ci.flags.includes('CRAFTED') ? ['crafted'] : []),
+    ...(ci.flags.includes('QUEST') ? ['quest'] : []),
+  ]
+  return c.length ? c : ['unknown']
+}
 
 // Display label for where an item comes from; 'crafted' only when actually flagged.
 const srcLabel = (ci: Item) => ci.zones.length ? ci.zones.join(', ')
@@ -92,7 +97,7 @@ export default class App extends Component<{}, State> {
     mode: 'dark', trio: [], tab: 'slots', petSel: '', catalog: [], catalogLoaded: false,
     inv: null, invName: '', sources: { equipped: true, bags: true, bank: true, stash: true, hoard: true, depot: true },
     weightOv: {}, weightsOpen: false, browseSlot: 'Primary', charLevel: 50, effView: 'owned', compare: [],
-    wpnOff: [], obtOff: [], preset: 'balanced', goal: 'weights', copied: false, wnonce: 0,
+    wpnOff: [], obtOff: DEFAULT_OBT_OFF, preset: 'balanced', goal: 'weights', copied: false, wnonce: 0,
     iconIds: null, spellDesc: {},
   }
   private invText: string | null = null
@@ -135,7 +140,9 @@ export default class App extends Component<{}, State> {
           if (draft.weightOv) next.weightOv = draft.weightOv
           if (draft.charLevel) next.charLevel = draft.charLevel
           if (Array.isArray(draft.wpnOff)) next.wpnOff = draft.wpnOff
-          if (Array.isArray(draft.obtOff)) next.obtOff = draft.obtOff
+          // Drafts saved before the 'unknown' channel existed (v < 2) get it
+          // turned off, matching the new default.
+          if (Array.isArray(draft.obtOff)) next.obtOff = draft.v >= 2 ? draft.obtOff : [...new Set([...draft.obtOff, 'unknown'])]
           if (draft.preset) next.preset = draft.preset
           if (draft.goal && GOALS.some(g => g.id === draft.goal)) next.goal = draft.goal
           if (draft.petSel && PETS.some(p => p.id === draft.petSel)) next.petSel = draft.petSel
@@ -162,7 +169,7 @@ export default class App extends Component<{}, State> {
     try {
       localStorage.setItem('eqlbis.mode.v1', this.state.mode)
       localStorage.setItem('eqlbis.draft.v1', JSON.stringify({
-        trio: this.state.trio, sources: this.state.sources, weightOv: this.state.weightOv,
+        v: 2, trio: this.state.trio, sources: this.state.sources, weightOv: this.state.weightOv,
         charLevel: this.state.charLevel, wpnOff: this.state.wpnOff, obtOff: this.state.obtOff, preset: this.state.preset, goal: this.state.goal,
         invText: this.invText, invName: this.state.invName, petSel: this.state.petSel,
       }))
@@ -426,7 +433,7 @@ export default class App extends Component<{}, State> {
     const slotFits = (ci: Item, slot: string) => slot === 'Any Slot' ? (ci.slots && ci.slots.length > 0) : (ci.slots || []).includes(slot)
     const lvlOk = (ci: Item) => !ci.level || ci.level <= st.charLevel
     const wpnOk = (ci: Item) => !ci.skill || !st.wpnOff.includes(ci.skill)
-    const obtOk = (ci: Item) => { const c = obtainChannels(ci); return !c.length || c.some(x => !st.obtOff.includes(x)) }
+    const obtOk = (ci: Item) => obtainChannels(ci).some(x => !st.obtOff.includes(x))
     // Best Owned is an assignment, not a per-slot max: one physical item can't
     // fill two slots (a single Baron's Blade must not be the pick for Primary
     // AND Secondary). Highest score claims a slot first; on ties the slot the
@@ -671,7 +678,7 @@ export default class App extends Component<{}, State> {
             style={{ padding: '9px 14px', borderRadius: 'var(--radius)', border: '1px solid var(--accent)', background: 'var(--accent)', color: 'var(--accentText)', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
             {st.copied ? 'Copied!' : 'Share'}
           </button>
-          <button className="eq-del" onClick={() => { this.invText = null; this.set({ trio: [], inv: null, invName: '', weightOv: {}, wpnOff: [], obtOff: [], charLevel: 50, preset: 'balanced', goal: 'weights', tab: 'slots', wnonce: st.wnonce + 1 }) }}
+          <button className="eq-del" onClick={() => { this.invText = null; this.set({ trio: [], inv: null, invName: '', weightOv: {}, wpnOff: [], obtOff: DEFAULT_OBT_OFF, charLevel: 50, preset: 'balanced', goal: 'weights', tab: 'slots', wnonce: st.wnonce + 1 }) }}
             style={{ padding: '9px 14px', borderRadius: 'var(--radius)', border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)', cursor: 'pointer', fontSize: 13 }}>
             Reset
           </button>
