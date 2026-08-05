@@ -308,9 +308,14 @@ async function main() {
   for (let i = 0; i < workList.length; i++) {
     const title = workList[i];
     try {
-      const item = parseItem(title, await wikitext(title), zoneSet, zoneLevels);
-      // Only equippable gear matters for BiS — skip stat-less non-equip pages.
-      if (item.slots.length || item.dmg) out.push(item);
+      const text = await wikitext(title);
+      // "{{:Does Not Exist}}" banner = wiki-documented but not actually in
+      // the game (non-Legends content) — never list it.
+      if (!/\{\{\s*:?\s*Does Not Exist\s*\}\}/i.test(text)) {
+        const item = parseItem(title, text, zoneSet, zoneLevels);
+        // Only equippable gear matters for BiS — skip stat-less non-equip pages.
+        if (item.slots.length || item.dmg) out.push(item);
+      }
     } catch (e) { /* skip broken pages */ }
     if (i % 25 === 0) process.stderr.write(`  ${i}/${workList.length}\r`);
     await sleep(120); // ~8 req/s — keep it gentle on the wiki
