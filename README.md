@@ -34,6 +34,7 @@ MediaWiki API:
 ```
 npm run items:scrape   # rebuilds the catalog (slow, hits the wiki politely)
 npm run icons:fetch    # downloads item icons into public/icons/item/
+npm run spells:fetch   # rebuilds public/eql-spell-desc.json (effect descriptions)
 ```
 
 Both tools are plain Node 18+ scripts, no extra dependencies. If the wiki's

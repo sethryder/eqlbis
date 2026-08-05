@@ -69,24 +69,26 @@ const chipOn: CSSProperties = { ...pillBase, border: '1px solid var(--accent)', 
 const numInput: CSSProperties = { border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--bg)', color: 'var(--text)', fontFamily: MONO, fontSize: 12 }
 const slotGrid: CSSProperties = { display: 'grid', gridTemplateColumns: '96px minmax(180px,1fr) minmax(180px,1fr) minmax(200px,1.15fr)', gap: 14 }
 const stepBtn: CSSProperties = { width: 22, height: 22, display: 'grid', placeItems: 'center', border: '1px solid var(--border)', borderRadius: 4, background: 'var(--bg)', color: 'var(--text)', cursor: 'pointer', fontSize: 12, padding: 0, lineHeight: 1 }
+const effSecHead: CSSProperties = { padding: '9px 18px', background: 'var(--panel2)', borderBottom: '1px solid var(--border)', fontSize: 10, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--muted)' }
 
 type State = {
-  mode: 'dark' | 'light'; trio: string[]; tab: 'slots' | 'upgrades' | 'browse' | 'pets'; petSel: string
+  mode: 'dark' | 'light'; trio: string[]; tab: 'slots' | 'upgrades' | 'browse' | 'effects' | 'pets'; petSel: string
   catalog: Item[]; catalogLoaded: boolean
   inv: InvEntry[] | null; invName: string; sources: Record<InvSource, boolean>
-  weightOv: Weights; weightsOpen: boolean; browseSlot: string; charLevel: number
+  weightOv: Weights; weightsOpen: boolean; browseSlot: string; charLevel: number; effView: 'owned' | 'all'
   compare: { name: string; tier: number; slot: string }[]
   wpnOff: string[]; obtOff: string[]; preset: string; goal: string; copied: boolean; wnonce: number
   iconIds: Set<number> | null
+  spellDesc: Record<string, string>
 }
 
 export default class App extends Component<{}, State> {
   state: State = {
     mode: 'dark', trio: [], tab: 'slots', petSel: '', catalog: [], catalogLoaded: false,
     inv: null, invName: '', sources: { equipped: true, bags: true, bank: true, stash: true, hoard: true, depot: true },
-    weightOv: {}, weightsOpen: false, browseSlot: 'Primary', charLevel: 50, compare: [],
+    weightOv: {}, weightsOpen: false, browseSlot: 'Primary', charLevel: 50, effView: 'owned', compare: [],
     wpnOff: [], obtOff: [], preset: 'balanced', goal: 'weights', copied: false, wnonce: 0,
-    iconIds: null,
+    iconIds: null, spellDesc: {},
   }
   private invText: string | null = null
   private copyTimer: ReturnType<typeof setTimeout> | undefined
@@ -144,6 +146,10 @@ export default class App extends Component<{}, State> {
     // ids with a wiki-sourced icon file (EQL's own art); rest use the sheets
     fetch('/icons/item/manifest.json').then(r => r.json())
       .then((ids: number[]) => this.setState({ iconIds: new Set(ids) }))
+      .catch(() => {})
+    // spell name -> description, for effect/focus lines (tools/fetch-spell-descriptions.mjs)
+    fetch('/eql-spell-desc.json').then(r => r.json())
+      .then(spellDesc => this.setState({ spellDesc }))
       .catch(() => {})
   }
 
@@ -369,7 +375,9 @@ export default class App extends Component<{}, State> {
         {ci.effect || ci.focus ? (
           <span style={{ display: 'flex', flexDirection: 'column', gap: 1, color: 'var(--accent)' }}>
             {ci.effect ? <span>Effect: {ci.effect}</span> : null}
+            {ci.effect && this.state.spellDesc[ci.effect.replace(/\s*\(.*/, '').trim()] ? <span style={{ color: 'var(--muted)' }}>{this.state.spellDesc[ci.effect.replace(/\s*\(.*/, '').trim()]}</span> : null}
             {ci.focus ? <span>Focus: {ci.focus}</span> : null}
+            {ci.focus && this.state.spellDesc[ci.focus] ? <span style={{ color: 'var(--muted)' }}>{this.state.spellDesc[ci.focus]}</span> : null}
           </span>
         ) : null}
         {ci.notes ? <span style={{ color: 'var(--muted)', fontStyle: 'italic' }}>{ci.notes}</span> : null}
@@ -511,6 +519,55 @@ export default class App extends Component<{}, State> {
         ...this.dispItem(x.ci, 0, w, [x.ci.zones.length ? x.ci.zones.join(', ') : (x.ci.flags.includes('VENDOR') ? '' : 'common/crafted'), ...(x.ci.level ? ['lvl ' + x.ci.level + '+'] : []), ...x.ci.flags.map(f => f.toLowerCase())].filter(Boolean)),
         ownedTag: pool.some(e => e.base.toLowerCase() === x.ci.name.toLowerCase()) ? 'owned' : '',
       }))
+
+    // ---- effects on owned gear: Focus / Clicky / Worn / Proc, kind parsed
+    // from the wiki effect string ("(Combat…)" = proc, "(Worn)" = worn, any
+    // other equip/click wording = clicky; focus is its own field) ----
+    const effKind = (txt: string) => /\(Combat/.test(txt) ? 'Proc' : /\(Worn/.test(txt) ? 'Worn' : 'Clicky'
+    const effRows: { kind: string; text: string; e: InvEntry; ci: Item }[] = []
+    {
+      const seen = new Set<string>()
+      for (const e of pool) {
+        const ci = known(e)
+        if (!ci || !this.usable(ci) || seen.has(e.base.toLowerCase())) continue
+        seen.add(e.base.toLowerCase())
+        if (ci.focus) effRows.push({ kind: 'Focus', text: ci.focus, e, ci })
+        if (ci.effect) effRows.push({ kind: effKind(ci.effect), text: ci.effect, e, ci })
+      }
+      effRows.sort((a, b) => a.text.localeCompare(b.text))
+    }
+    // Focus effects tier cleanly (name + roman numeral), so "best available"
+    // is real math: highest obtainable tier per family. Clicky/proc/worn have
+    // no spell data to rank by — they get the All-in-game browse view instead.
+    const ROMAN: Record<string, number> = { I: 1, II: 2, III: 3, IV: 4, V: 5, VI: 6 }
+    const focusFam = (f: string) => { const m = f.match(/^(.*?)\s+([IVX]+)$/); return { fam: m ? m[1] : f, tier: m ? ROMAN[m[2]] || 0 : 0 } }
+    const bestFocus = new Map<string, { ci: Item; tier: number }>()
+    for (const ci of st.catalog) {
+      if (!ci.focus || !this.usable(ci) || !lvlOk(ci) || !obtOk(ci)) continue
+      const { fam, tier } = focusFam(ci.focus)
+      if ((bestFocus.get(fam)?.tier ?? -1) < tier) bestFocus.set(fam, { ci, tier })
+    }
+    const spellOf = (t: string) => t.replace(/\s*\(.*/, '')
+    type EffAll = { text: string; ci: Item }
+    // All-in-game view: every obtainable effect, grouped by spell name (focus
+    // family for focuses, tiers sorted best-first).
+    const allEffGroups = (kind: string): [string, EffAll[]][] => {
+      const g = new Map<string, EffAll[]>()
+      const push = (k: string, text: string, ci: Item) => {
+        if (k !== kind) return
+        const key = kind === 'Focus' ? focusFam(text).fam : spellOf(text)
+        const l = g.get(key) || []
+        l.push({ text, ci })
+        g.set(key, l)
+      }
+      for (const ci of st.catalog) {
+        if (!this.usable(ci) || !lvlOk(ci) || !obtOk(ci)) continue
+        if (ci.focus) push('Focus', ci.focus, ci)
+        if (ci.effect) push(effKind(ci.effect), ci.effect, ci)
+      }
+      for (const l of g.values()) l.sort((a, b) => (kind === 'Focus' ? focusFam(b.text).tier - focusFam(a.text).tier : 0) || a.ci.name.localeCompare(b.ci.name))
+      return [...g.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+    }
 
     // ---- pet gear (tab shown only when the trio has a pet class) ----
     const petOptions = PETS.filter(p => trio.includes(p.owner))
@@ -824,6 +881,7 @@ export default class App extends Component<{}, State> {
               <button style={tabBtn(tab === 'slots')} onClick={setTab('slots')}>By Slot</button>
               <button style={tabBtn(tab === 'upgrades')} onClick={setTab('upgrades')}>Upgrades ({upgrades.length})</button>
               <button style={tabBtn(tab === 'browse')} onClick={setTab('browse')}>Browse</button>
+              <button style={tabBtn(tab === 'effects')} onClick={setTab('effects')}>Effects{st.inv ? ` (${effRows.length})` : ''}</button>
               {pet && <button style={tabBtn(tab === 'pets')} onClick={setTab('pets')}>Pet Gear</button>}
               <div style={{ flex: 1 }} />
               <div style={{ ...monoMeta, paddingBottom: 10 }}>{trio.length ? 'scored for ' + trio.join(' / ') : 'no trio picked — flat weights, all items shown'}</div>
@@ -943,6 +1001,91 @@ export default class App extends Component<{}, State> {
                   })}
                 </div>
               </>
+            )}
+            {tab === 'effects' && (
+              <div className="eqs" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 18px', borderBottom: '1px solid var(--border)', flex: 'none' }}>
+                  <button style={st.effView === 'owned' ? chipOn : chipOff} onClick={() => this.setState({ effView: 'owned' })}>Your gear</button>
+                  <button style={st.effView === 'all' ? chipOn : chipOff} onClick={() => this.setState({ effView: 'all' })}>All in game</button>
+                  <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+                    {st.effView === 'owned' ? 'effects on gear you own · focus rows flag when a higher tier is obtainable' : 'every effect obtainable by your trio, grouped by spell'}
+                  </div>
+                </div>
+                <div className="eqs" style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
+                {st.effView === 'all' ? (['Clicky', 'Proc', 'Worn', 'Focus'] as const).map(kind => {
+                  const groups = allEffGroups(kind)
+                  if (!groups.length) return null
+                  return (
+                    <div key={kind}>
+                      <div style={effSecHead}>{kind} · {groups.length} {kind === 'Focus' ? 'families' : 'spells'}</div>
+                      {groups.map(([key, list]) => (
+                        <div key={key} style={{ padding: '11px 18px', borderBottom: '1px solid var(--border)' }}>
+                          <div style={{ fontFamily: CINZEL, fontSize: 13, fontWeight: 600 }}>{key}</div>
+                          {(() => { const d = st.spellDesc[kind === 'Focus' ? list[0].text : key]; return d ? <div style={{ ...caption, marginTop: 2 }}>{d}</div> : null })()}
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+                            {list.map((r, i) => this.unit(
+                              { ...this.tileFor(r.ci.type, r.ci.name, r.ci.icon || 0), chips: [
+                                { txt: r.text, color: 'var(--accent)' },
+                                { txt: r.ci.zones.length ? r.ci.zones.join(', ') : (r.ci.flags.includes('VENDOR') ? 'vendor sold' : 'common/crafted'), color: 'var(--muted)' },
+                                ...(r.ci.level ? [{ txt: 'lvl ' + r.ci.level + '+', color: 'var(--muted)' }] : []),
+                                ...(pool.some(e => e.base.toLowerCase() === r.ci.name.toLowerCase()) ? [{ txt: 'owned', color: 'var(--good)' }] : []),
+                              ] },
+                              r.ci.name, null, this.infoTip(r.ci)))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                }) : (['Clicky', 'Proc', 'Worn', 'Focus'] as const).map(kind => {
+                  const rows = effRows.filter(r => r.kind === kind)
+                  if (!rows.length) return null
+                  return (
+                    <div key={kind}>
+                      <div style={effSecHead}>{kind} · {rows.length}</div>
+                      {rows.map((r, i) => {
+                        // owned focus with a higher tier obtainable → upgrade note
+                        const fam = r.kind === 'Focus' ? focusFam(r.text) : null
+                        const ba = fam ? bestFocus.get(fam.fam) : undefined
+                        const better = ba && fam && ba.tier > fam.tier ? ba : null
+                        return (
+                          <div key={i} style={{ display: 'grid', gridTemplateColumns: 'minmax(200px,1fr) minmax(220px,1.3fr)', gap: 14, padding: '11px 18px', borderBottom: '1px solid var(--border)', alignItems: 'center' }}>
+                            {this.unit(
+                              { ...this.tileFor(r.ci.type, r.ci.name, r.ci.icon || 0), chips: [{ txt: (r.ci.slots || []).join(', ').toLowerCase() || r.ci.type.toLowerCase(), color: 'var(--muted)' }, { txt: r.e.source === 'equipped' ? 'equipped' : r.e.source, color: 'var(--muted)' }] },
+                              <>{r.e.base}{this.tierSpan(r.e.tier)}</>,
+                              null, this.infoTip(r.ci, r.e.tier))}
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontSize: 12.5, color: 'var(--accent)' }}>{r.text}</div>
+                              {st.spellDesc[r.kind === 'Focus' ? r.text : spellOf(r.text)] && (
+                                <div style={{ ...caption, marginTop: 2 }}>{st.spellDesc[r.kind === 'Focus' ? r.text : spellOf(r.text)]}</div>
+                              )}
+                              {better && (
+                                <div style={{ fontSize: 11.5, color: 'var(--good)', marginTop: 2 }}>
+                                  ↑ {better.ci.focus} — {better.ci.name}
+                                  {pool.some(e => e.base.toLowerCase() === better.ci.name.toLowerCase()) ? ' (owned)'
+                                    : better.ci.zones.length ? ' · ' + better.ci.zones.join(', ')
+                                    : better.ci.flags.includes('VENDOR') ? ' · vendor sold' : ' · common/crafted'}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )
+                })}
+                {st.effView === 'owned' && effRows.length === 0 && (
+                  <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--muted)' }}>
+                    <div style={{ width: 46, height: 46, border: '2px dashed var(--border)', borderRadius: 8, transform: 'rotate(45deg)', margin: '0 auto 22px' }} />
+                    <div style={{ fontFamily: CINZEL, fontSize: 16, color: 'var(--text)', marginBottom: 6 }}>{st.inv ? 'No effects found' : 'No inventory loaded'}</div>
+                    <div style={{ fontSize: 12.5, maxWidth: 340, margin: '0 auto', lineHeight: 1.5 }}>
+                      {st.inv
+                        ? 'None of your gear (in the checked sources, usable by your trio) has a click, worn, proc, or focus effect.'
+                        : 'Upload an inventory file to see every click, worn, proc, and focus effect on gear you own — or hit All in game to browse the catalog.'}
+                    </div>
+                  </div>
+                )}
+                </div>
+              </div>
             )}
             {tab === 'pets' && pet && (
               <>

@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test": "node src/logic.test.ts",
     "items:scrape": "node tools/build-eql-bis-items.mjs > public/eql-bis-items.json",
-    "icons:fetch": "node tools/fetch-icons.mjs"
+    "icons:fetch": "node tools/fetch-icons.mjs",
+    "spells:fetch": "node tools/fetch-spell-descriptions.mjs"
   },
   "dependencies": {
     "react": "^18.3.1",
