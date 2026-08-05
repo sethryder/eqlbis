@@ -26,6 +26,11 @@ const obtainChannels = (ci: Item) => [
   ...(ci.flags.includes('QUEST') ? ['quest'] : []),
 ]
 
+// Display label for where an item comes from; 'crafted' only when actually flagged.
+const srcLabel = (ci: Item) => ci.zones.length ? ci.zones.join(', ')
+  : ci.flags.includes('VENDOR') ? 'vendor sold'
+  : ci.flags.includes('CRAFTED') ? 'crafted' : 'unknown source'
+
 // Pet gearing rules, per the wiki's Pet Guide: every pet is WAR plus a
 // secondary class, and can wear anything usable by its own classes OR any of
 // the owner's classes. Pets auto-equip the highest-AC item per body slot and
@@ -483,7 +488,7 @@ export default class App extends Component<{}, State> {
         const owned = pool.some(e => e.base.toLowerCase() === x.ci.name.toLowerCase())
         return {
           name: x.ci.name, ci: x.ci,
-          ...this.dispItem(x.ci, 0, wRow, [x.ci.zones.length ? x.ci.zones.join(', ') : (x.ci.flags.includes('VENDOR') ? 'vendor sold' : 'common/crafted'), ...(x.ci.level ? ['lvl ' + x.ci.level + '+'] : [])]),
+          ...this.dispItem(x.ci, 0, wRow, [srcLabel(x.ci), ...(x.ci.level ? ['lvl ' + x.ci.level + '+'] : [])]),
           deltaText: owned ? 'owned' : (eqEntries.length ? (!upgrade ? '✓ best' : delta > 0.05 ? '+' + fmt(delta) : 'ratio +' + ratioGain) : fmt(x.sc)),
           deltaColor: upgrade && !owned ? 'var(--good)' : 'var(--muted)',
           delta, upgrade, owned,
@@ -516,7 +521,7 @@ export default class App extends Component<{}, State> {
       .sort((a, b) => b.rk - a.rk).slice(0, MAX_BROWSE)
       .map((x, i) => ({
         rank: i + 1, name: x.ci.name, ci: x.ci,
-        ...this.dispItem(x.ci, 0, w, [x.ci.zones.length ? x.ci.zones.join(', ') : (x.ci.flags.includes('VENDOR') ? '' : 'common/crafted'), ...(x.ci.level ? ['lvl ' + x.ci.level + '+'] : []), ...x.ci.flags.map(f => f.toLowerCase())].filter(Boolean)),
+        ...this.dispItem(x.ci, 0, w, [x.ci.zones.length ? x.ci.zones.join(', ') : (x.ci.flags.includes('VENDOR') || x.ci.flags.includes('CRAFTED') ? '' : 'unknown source'), ...(x.ci.level ? ['lvl ' + x.ci.level + '+'] : []), ...x.ci.flags.map(f => f.toLowerCase())].filter(Boolean)),
         ownedTag: pool.some(e => e.base.toLowerCase() === x.ci.name.toLowerCase()) ? 'owned' : '',
       }))
 
@@ -1026,7 +1031,7 @@ export default class App extends Component<{}, State> {
                             {list.map((r, i) => this.unit(
                               { ...this.tileFor(r.ci.type, r.ci.name, r.ci.icon || 0), chips: [
                                 { txt: r.text, color: 'var(--accent)' },
-                                { txt: r.ci.zones.length ? r.ci.zones.join(', ') : (r.ci.flags.includes('VENDOR') ? 'vendor sold' : 'common/crafted'), color: 'var(--muted)' },
+                                { txt: srcLabel(r.ci), color: 'var(--muted)' },
                                 ...(r.ci.level ? [{ txt: 'lvl ' + r.ci.level + '+', color: 'var(--muted)' }] : []),
                                 ...(pool.some(e => e.base.toLowerCase() === r.ci.name.toLowerCase()) ? [{ txt: 'owned', color: 'var(--good)' }] : []),
                               ] },
@@ -1062,8 +1067,7 @@ export default class App extends Component<{}, State> {
                                 <div style={{ fontSize: 11.5, color: 'var(--good)', marginTop: 2 }}>
                                   ↑ {better.ci.focus} — {better.ci.name}
                                   {pool.some(e => e.base.toLowerCase() === better.ci.name.toLowerCase()) ? ' (owned)'
-                                    : better.ci.zones.length ? ' · ' + better.ci.zones.join(', ')
-                                    : better.ci.flags.includes('VENDOR') ? ' · vendor sold' : ' · common/crafted'}
+                                    : ' · ' + srcLabel(better.ci)}
                                 </div>
                               )}
                             </div>
@@ -1123,7 +1127,7 @@ export default class App extends Component<{}, State> {
                             : <div style={{ fontSize: 12, color: 'var(--muted)', paddingTop: 4 }}>{st.inv ? '— empty box —' : 'upload inventory'}</div>}
                         </div>
                         <div style={{ minWidth: 0 }}>
-                          {a ? petUnit(a, [a.ci.zones.length ? a.ci.zones.join(', ') : (a.ci.flags.includes('VENDOR') ? 'vendor sold' : 'common/crafted'), ...(a.ci.level ? ['lvl ' + a.ci.level + '+'] : []), ...(pool.some(e => e.base.toLowerCase() === a.ci.name.toLowerCase()) ? ['owned'] : [])].join(' · '))
+                          {a ? petUnit(a, [srcLabel(a.ci), ...(a.ci.level ? ['lvl ' + a.ci.level + '+'] : []), ...(pool.some(e => e.base.toLowerCase() === a.ci.name.toLowerCase()) ? ['owned'] : [])].join(' · '))
                             : <div style={{ fontSize: 12, color: 'var(--muted)', paddingTop: 4 }}>no catalog data</div>}
                         </div>
                       </div>
