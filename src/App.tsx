@@ -1,7 +1,7 @@
 import { Component, CSSProperties, ReactNode } from 'react'
 import {
   CLASSES, KEYS, GOALS, PRESETS, SLOT_TYPES, STAT_KEYS, W, WPN_TYPES,
-  b64decode, b64encode, blendWeights, fmt, parseInv, r2, rankScore, score, tierDmg, tierStat,
+  WORN_REGEN, b64decode, b64encode, blendWeights, dmgBonus, fmt, hasteTerm, parseInv, r2, rangedSkill, rankScore, score, tierDmg, tierStat, wpnActive,
 } from './logic'
 import type { InvEntry, InvSource, Item, Weights } from './logic'
 
@@ -234,29 +234,38 @@ export default class App extends Component<{}, State> {
     return chips
   }
 
-  tipFor(ci: Item, tier: number, w: Weights): TipLine[] {
+  tipFor(ci: Item, tier: number, w: Weights, slot?: string): TipLine[] {
     const L: TipLine[] = []
     const add = (label: string, val: number) => { if (val) L.push({ label, val: fmt(val) }) }
-    if (ci.dmg && ci.dly) {
+    if (ci.dmg && ci.dly && wpnActive(slot, ci.skill)) {
       const d = tierDmg(ci.dmg, tier)
-      add(d + 'dmg/' + ci.dly + 'dly (ratio ' + r2(d / ci.dly) + ') × 20 × ' + r2(w.DPS) + ' dps', (d / ci.dly) * 20 * w.DPS)
+      const b = dmgBonus(ci.skill, ci.dly)
+      add('(2×' + d + 'dmg + ' + b + ' bonus)/' + ci.dly + 'dly × 10' + (rangedSkill(ci.skill) ? ' × 0.5 ranged' : '') + ' × ' + r2(w.DPS) + ' dps',
+        ((2 * d + b) / ci.dly) * 10 * (rangedSkill(ci.skill) ? 0.5 : 1) * w.DPS)
     }
     if (ci.ac) add('AC ' + tierStat(ci.ac, tier) + ' × ' + r2(w.AC), tierStat(ci.ac, tier) * w.AC)
     for (const k of STAT_KEYS) {
       const v = ci.stats[k] || 0
       if (v) add(k + ' ' + (v > 0 ? tierStat(v, tier) : v) + ' × ' + r2(w[k]), (v > 0 ? tierStat(v, tier) : v) * w[k])
     }
-    if (ci.haste) add('Haste ' + (ci.haste + tier) + '% × 0.5 × ' + r2(w.DPS), (ci.haste + tier) * 0.5 * w.DPS)
-    if (ci.hp) add('HP ' + tierStat(ci.hp, tier) + ' × 0.1 × ' + r2(w.HP), tierStat(ci.hp, tier) * 0.1 * w.HP)
-    if (ci.mana) add('Mana ' + tierStat(ci.mana, tier) + ' × 0.1 × ' + r2(w.MANA), tierStat(ci.mana, tier) * 0.1 * w.MANA)
-    if (ci.end) add('END ' + tierStat(ci.end, tier) + ' × 0.1 × ' + r2(w.DPS), tierStat(ci.end, tier) * 0.1 * w.DPS)
+    if (ci.haste) add('Haste ' + (ci.haste + tier) + '% × 2.5 × ' + r2(w.DPS), (ci.haste + tier) * 2.5 * w.DPS)
+    if (ci.effect && ci.effect.includes('Combat') && wpnActive(slot, ci.skill)) add('Combat proc ≈ 2 dps × ' + r2(w.DPS), 2 * w.DPS)
+    if (ci.focus) add('Focus effect + 10 × ' + r2(w.MANA || 0) + ' mana wt', 10 * (w.MANA || 0))
+    if (ci.hp) add('HP ' + tierStat(ci.hp, tier) + ' × 0.2 × ' + r2(w.HP), tierStat(ci.hp, tier) * 0.2 * w.HP)
+    if (ci.mana) add('Mana ' + tierStat(ci.mana, tier) + ' × 0.2 × ' + r2(w.MANA), tierStat(ci.mana, tier) * 0.2 * w.MANA)
+    if (ci.end) add('END ' + tierStat(ci.end, tier) + ' × 0.05 × ' + r2(w.DPS), tierStat(ci.end, tier) * 0.05 * w.DPS)
     if (ci.stats.SV) add('Resists ' + tierStat(ci.stats.SV, tier) + ' × 0.3 × ' + r2(w.SV), tierStat(ci.stats.SV, tier) * 0.3 * w.SV)
-    if (ci.hpRegen) add('HP Regen ' + tierStat(ci.hpRegen, tier) + ' × 1.5 × ' + r2(w.HP), tierStat(ci.hpRegen, tier) * 1.5 * w.HP)
-    if (ci.manaRegen) add('Mana Regen ' + tierStat(ci.manaRegen, tier) + ' × 1.5 × ' + r2(w.MANA), tierStat(ci.manaRegen, tier) * 1.5 * w.MANA)
+    if (ci.hpRegen) add('HP Regen ' + tierStat(ci.hpRegen, tier) + ' × 6 × ' + r2(w.HP), tierStat(ci.hpRegen, tier) * 6 * w.HP)
+    if (ci.manaRegen) add('Mana Regen ' + tierStat(ci.manaRegen, tier) + ' × 6 × ' + r2(w.MANA), tierStat(ci.manaRegen, tier) * 6 * w.MANA)
     if (ci.endRegen) add('End Regen ' + tierStat(ci.endRegen, tier) + ' × 1.5 × ' + r2(w.DPS), tierStat(ci.endRegen, tier) * 1.5 * w.DPS)
+    if (ci.effect && ci.effect.includes('(Worn')) {
+      const wr = WORN_REGEN[ci.effect.split(' (')[0]]
+      if (wr?.hp) add('Worn ' + ci.effect.split(' (')[0] + ' (' + wr.hp + ' HP/tick) × 6 × ' + r2(w.HP), wr.hp * 6 * w.HP)
+      if (wr?.mana) add('Worn ' + ci.effect.split(' (')[0] + ' (' + wr.mana + ' mana/tick) × 6 × ' + r2(w.MANA), wr.mana * 6 * w.MANA)
+    }
     if (tier) add('SV Void ' + tier + ' × 0.3 × ' + r2(w.SV), tier * 0.3 * w.SV)
     if (tier) L.push({ label: 'stats at tier +' + tier + ' (+10%/tier, min +1; dmg +10%/tier; haste +1%/tier; +1 SV Void/tier)', val: '' })
-    L.push({ label: 'Score · weights from your trio', val: fmt(score(ci, tier, w)), bold: true })
+    L.push({ label: 'Score · weights from your trio', val: fmt(score(ci, tier, w, slot)), bold: true })
     return L
   }
 
@@ -287,11 +296,11 @@ export default class App extends Component<{}, State> {
     }
   }
 
-  dispItem(ci: Item, tier: number, w: Weights, metaChips: string[] = []): Disp {
+  dispItem(ci: Item, tier: number, w: Weights, metaChips: string[] = [], slot?: string): Disp {
     return {
       ...this.tileFor(ci.type, ci.name, ci.icon || 0),
       chips: [...this.chipsFor(ci, tier), ...metaChips.map(t => ({ txt: t, color: 'var(--muted)' }))],
-      scoreText: fmt(score(ci, tier, w)), tip: this.tipFor(ci, tier, w), hasScore: true,
+      scoreText: fmt(score(ci, tier, w, slot)), tip: this.tipFor(ci, tier, w, slot), hasScore: true,
     }
   }
 
@@ -443,12 +452,17 @@ export default class App extends Component<{}, State> {
     const ownedPicks = new Map<string, OwnedPick[]>()
     {
       const cands: (OwnedPick & { rk: number; slot: string; inSlot: boolean })[] = []
+      // Worn haste never stacks — only the highest item counts. Any owned item
+      // with less haste than the best owned haste piece gets its haste credit
+      // stripped here, so Best Owned doesn't stack "upgrades" that add nothing.
+      const bestHaste = Math.max(0, ...pool.map(e => { const ci = known(e); return ci?.haste ? ci.haste + e.tier : 0 }))
       for (const slot of SLOT_TYPES) {
         const wRow = slot === 'Any Slot' ? gw : w
         for (const e of pool) {
           const ci = known(e)
           if (!ci || !slotFits(ci, slot) || !this.usable(ci) || !wpnOk(ci)) continue
-          cands.push({ e, ci, sc: score(ci, e.tier, wRow), rk: rankScore(ci, e.tier, wRow, slot, trio), slot, inSlot: e.source === 'equipped' && e.loc === slot })
+          const dupHaste = ci.haste && ci.haste + e.tier < bestHaste ? hasteTerm(ci.haste, e.tier, wRow) : 0
+          cands.push({ e, ci, sc: score(ci, e.tier, wRow, slot) - dupHaste, rk: rankScore(ci, e.tier, wRow, slot, trio) - dupHaste, slot, inSlot: e.source === 'equipped' && e.loc === slot })
         }
       }
       cands.sort((a, b) => b.rk - a.rk || (b.inSlot ? 1 : 0) - (a.inSlot ? 1 : 0))
@@ -472,19 +486,19 @@ export default class App extends Component<{}, State> {
         const ci = known(e)
         const base = { name: e.base, tier: e.tier, ci }
         return ci
-          ? { ...base, ...this.dispItem(ci, e.tier, wRow) }
+          ? { ...base, ...this.dispItem(ci, e.tier, wRow, [], slot) }
           : { ...base, ...this.tileFor('Misc', e.base, 0), chips: [{ txt: 'no catalog data', color: 'var(--muted)' }], hasScore: false, scoreText: '', tip: [] as TipLine[] }
       })
       const eqNames = eqEntries.map(e => e.base.toLowerCase())
       // Paired slots hold two items (top 2, vs 1st/2nd-best equipped); Any Slot
       // rows show the top 3 goal-ranked picks.
       const nWant = slot === 'Any Slot' ? 3 : (slot === 'Ear' || slot === 'Wrist' || slot === 'Fingers') ? 2 : 1
-      const eqScores = eqEntries.map(e => { const ci = known(e); return ci ? score(ci, e.tier, wRow) : 0 }).sort((a, b) => b - a)
+      const eqScores = eqEntries.map(e => { const ci = known(e); return ci ? score(ci, e.tier, wRow, slot) : 0 }).sort((a, b) => b - a)
       const eqRks = eqEntries.map(e => { const ci = known(e); return ci ? rankScore(ci, e.tier, wRow, slot, trio) : 0 }).sort((a, b) => b - a)
       const bestEqRatio = Math.max(0, ...eqEntries.map(e => { const ci = known(e); return ci && ci.dmg && ci.dly ? tierDmg(ci.dmg, e.tier) / ci.dly : 0 }))
       const tops = st.catalog
         .filter(ci => slotFits(ci, slot) && this.usable(ci) && lvlOk(ci) && wpnOk(ci) && obtOk(ci))
-        .map(ci => ({ ci, sc: score(ci, 0, wRow), rk: rankScore(ci, 0, wRow, slot, trio) }))
+        .map(ci => ({ ci, sc: score(ci, 0, wRow, slot), rk: rankScore(ci, 0, wRow, slot, trio) }))
         .sort((a, b) => b.rk - a.rk).slice(0, nWant)
       const availList = tops.map((x, i) => {
         const delta = x.sc - (eqScores[i] || 0)
@@ -495,7 +509,7 @@ export default class App extends Component<{}, State> {
         const owned = pool.some(e => e.base.toLowerCase() === x.ci.name.toLowerCase())
         return {
           name: x.ci.name, ci: x.ci,
-          ...this.dispItem(x.ci, 0, wRow, [srcLabel(x.ci), ...(x.ci.level ? ['lvl ' + x.ci.level + '+'] : [])]),
+          ...this.dispItem(x.ci, 0, wRow, [srcLabel(x.ci), ...(x.ci.level ? ['lvl ' + x.ci.level + '+'] : [])], slot),
           deltaText: owned ? 'owned' : (eqEntries.length ? (!upgrade ? '✓ best' : delta > 0.05 ? '+' + fmt(delta) : 'ratio +' + ratioGain) : fmt(x.sc)),
           deltaColor: upgrade && !owned ? 'var(--good)' : 'var(--muted)',
           delta, upgrade, owned,
@@ -524,11 +538,11 @@ export default class App extends Component<{}, State> {
     const browseSlots = SLOT_TYPES.filter(s => s !== 'Any Slot')
     const browseRows = st.catalog
       .filter(ci => slotFits(ci, st.browseSlot) && this.usable(ci) && lvlOk(ci) && wpnOk(ci) && obtOk(ci))
-      .map(ci => ({ ci, sc: score(ci, 0, w), rk: rankScore(ci, 0, w, st.browseSlot, trio) }))
+      .map(ci => ({ ci, sc: score(ci, 0, w, st.browseSlot), rk: rankScore(ci, 0, w, st.browseSlot, trio) }))
       .sort((a, b) => b.rk - a.rk).slice(0, MAX_BROWSE)
       .map((x, i) => ({
         rank: i + 1, name: x.ci.name, ci: x.ci,
-        ...this.dispItem(x.ci, 0, w, [x.ci.zones.length ? x.ci.zones.join(', ') : (x.ci.flags.includes('VENDOR') || x.ci.flags.includes('CRAFTED') ? '' : 'unknown source'), ...(x.ci.level ? ['lvl ' + x.ci.level + '+'] : []), ...x.ci.flags.map(f => f.toLowerCase())].filter(Boolean)),
+        ...this.dispItem(x.ci, 0, w, [x.ci.zones.length ? x.ci.zones.join(', ') : (x.ci.flags.includes('VENDOR') || x.ci.flags.includes('CRAFTED') ? '' : 'unknown source'), ...(x.ci.level ? ['lvl ' + x.ci.level + '+'] : []), ...x.ci.flags.map(f => f.toLowerCase())].filter(Boolean), st.browseSlot),
         ownedTag: pool.some(e => e.base.toLowerCase() === x.ci.name.toLowerCase()) ? 'owned' : '',
       }))
 
@@ -865,7 +879,7 @@ export default class App extends Component<{}, State> {
               {st.weightsOpen && (
                 <div style={{ padding: '0 16px 14px', borderTop: '1px solid var(--border)' }}>
                   <div style={{ fontSize: 11.5, color: 'var(--muted)', margin: '10px 0', lineHeight: 1.5 }}>
-                    Presets bias the trio-derived weights toward a role (e.g. Melee downweights wis/int/mana even with a priest in the trio). Derived from your trio. Edit any weight to tune the ranking; HP/Mana are worth 0.1 per point, resists 0.3, worn haste 0.5 × the DPS weight per %.
+                    Presets bias the trio-derived weights toward a role (e.g. Melee downweights wis/int/mana even with a priest in the trio). Derived from your trio. Edit any weight to tune the ranking; HP/Mana are worth 0.2 per point (so 1 AC ≈ 5 HP at equal weights), resists 0.3, worn regen 30× a point of pool, worn haste 2.5 × the DPS weight per %.
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 14px' }}>
                     {KEYS.map(k => (
@@ -917,9 +931,9 @@ export default class App extends Component<{}, State> {
                       <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
                         {r.ownedList.map((p, i) => (
                           <div key={i}>{this.unit(
-                            this.dispItem(p.ci, p.e.tier, w, [p.isEq ? 'equipped' : p.e.source, ...(p.belowEq ? ['below equipped'] : [])]),
+                            this.dispItem(p.ci, p.e.tier, w, [p.isEq ? 'equipped' : p.e.source, ...(p.belowEq ? ['below equipped'] : [])], r.slot),
                             <>{p.e.base}{this.tierSpan(p.e.tier)}</>,
-                            this.badge(fmt(score(p.ci, p.e.tier, w)), this.tipFor(p.ci, p.e.tier, w)),
+                            this.badge(fmt(score(p.ci, p.e.tier, w, r.slot)), this.tipFor(p.ci, p.e.tier, w, r.slot)),
                             this.infoTip(p.ci, p.e.tier))}</div>
                         ))}
                         {r.ownedList.length === 0 && <div style={{ fontSize: 12, color: 'var(--muted)', paddingTop: 4 }}>{r.noOwnedText}</div>}
@@ -976,11 +990,11 @@ export default class App extends Component<{}, State> {
                       const ci = idx.get(c.name.toLowerCase())
                       if (!ci) return null
                       const eqSc = Math.max(0, ...inv.filter(e => e.source === 'equipped' && e.loc === c.slot).map(e => { const k = known(e); return k ? score(k, e.tier, w) : 0 }))
-                      const diff = score(ci, c.tier, w) - eqSc
+                      const diff = score(ci, c.tier, w, c.slot) - eqSc
                       const setC = (next: State['compare']) => this.setState({ compare: next })
                       return (
                         <div key={c.name} style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto', gap: 12, alignItems: 'center' }}>
-                          {this.unit(this.dispItem(ci, c.tier, w), c.name + (c.tier ? ' +' + c.tier : ''), this.badge(fmt(score(ci, c.tier, w)), this.tipFor(ci, c.tier, w), { fontSize: 12.5, fontWeight: 600 }), this.infoTip(ci, c.tier))}
+                          {this.unit(this.dispItem(ci, c.tier, w, [], c.slot), c.name + (c.tier ? ' +' + c.tier : ''), this.badge(fmt(score(ci, c.tier, w, c.slot)), this.tipFor(ci, c.tier, w, c.slot), { fontSize: 12.5, fontWeight: 600 }), this.infoTip(ci, c.tier))}
                           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                             <button style={stepBtn} onClick={() => setC(st.compare.map((x, j) => j === i ? { ...x, tier: Math.max(0, x.tier - 1) } : x))}>−</button>
                             <span style={{ ...monoMeta, width: 24, textAlign: 'center' }}>+{c.tier}</span>

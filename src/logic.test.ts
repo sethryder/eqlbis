@@ -1,7 +1,7 @@
 // Self-check for the parse + scoring core. Run: npm test (node 22.18+ strips types natively).
 import { readFileSync } from 'node:fs'
 import assert from 'node:assert/strict'
-import { blendWeights, hasMeleeTrio, parseInv, rankScore, score, tierDmg, tierStat } from './logic.ts'
+import { blendWeights, hasMeleeTrio, parseInv, r2, rankScore, score, tierDmg, tierStat } from './logic.ts'
 import type { Item } from './logic.ts'
 
 const inv = parseInv(readFileSync(new URL('../public/Washclof_oggok-Inventory.txt', import.meta.url), 'utf8'))
@@ -39,7 +39,7 @@ assert.equal(tierDmg(10, 4), 14)
 
 // Trio blend: WAR/CLR/WIZ average, 2dp
 const w = blendWeights(['WAR', 'CLR', 'WIZ'], 'balanced', {})
-assert.equal(w.AC, 1.77) // (3+1.5+0.8)/3
+assert.equal(w.AC, 1.57) // (3+1.2+0.5)/3
 assert.equal(w.WIS, 1)   // (0+3+0)/3
 // Overrides win; presets multiply
 assert.equal(blendWeights(['WAR', 'CLR', 'WIZ'], 'balanced', { AC: 9 }).AC, 9)
@@ -50,22 +50,44 @@ const flat = blendWeights([], 'balanced', {})
 const item: Item = { name: 'Crushbone Belt', type: 'Armor', slots: ['Waist'], classes: [], level: 0, ac: 3, hp: 0, mana: 0, dmg: 0, dly: 0, stats: { STR: 2, SV: 5 }, skill: '', icon: 971, zones: ['Crushbone'], flags: ['MAGIC'] }
 assert.equal(score(item, 0, flat), 6.5)
 // Tiered scores gain +1 SV Void/tier: tier × 0.3 × w.SV(1) on top of stats.
-// Weapon DPS term: 5dmg/25dly × 20 × w.DPS(1) = 4; tier 6 dmg 5+floor(3)=8 -> 6.4, +1.8 void
+// Weapon DPS term: (2×5dmg + 8 bonus)/25dly × 10 × w.DPS(1) = 7.2; tier 6
+// dmg 5+floor(3)=8 -> (16+8)/25 × 10 = 9.6, +1.8 void
 const wpn: Item = { ...item, name: 'Test Blade', slots: ['Primary'], ac: 0, stats: {}, dmg: 5, dly: 25, skill: '1H Slashing' }
-assert.equal(score(wpn, 0, flat), 4)
-assert.equal(score(wpn, 6, flat), 8.2)
-// Worn haste: 21% × 0.5 × w.DPS(1) = 10.5; flat +1%/tier -> 27 × 0.5 = 13.5
+assert.equal(r2(score(wpn, 0, flat)), 7.2)
+assert.equal(r2(score(wpn, 6, flat)), 11.4)
+// 2H gets the delay-bracketed bonus (14 at 28+ dly); archery counts half
+assert.equal(r2(score({ ...wpn, skill: '2H Slashing', dmg: 20, dly: 40 }, 0, flat)), 13.5) // (40+14)/40×10
+assert.equal(r2(score({ ...wpn, skill: 'Archery', dmg: 20, dly: 40 }, 0, flat)), 6) // (40+8)/40×10×0.5
+// Combat procs are a flat 2 × w.DPS credit; clickies get nothing
+assert.equal(r2(score({ ...wpn, effect: 'Ykesha (Combat, Casting Time: Instant) at Level 37' }, 0, flat)), 9.2)
+assert.equal(r2(score({ ...wpn, effect: 'Gate (Any Slot/Can Equip, Casting Time: 3.0)' }, 0, flat)), 7.2)
+// Weapon dmg/proc only count where the weapon can swing: a melee piercer
+// scored for the Range slot is a stat stick; a bow in Range keeps its credit
+assert.equal(score({ ...wpn, skill: 'Piercing' }, 0, flat, 'Range'), 0)
+assert.equal(r2(score({ ...wpn, skill: 'Archery' }, 0, flat, 'Range')), 3.6) // (10+8)/25×10×0.5
+// Worn haste: 21% × 2.5 × w.DPS(1) = 52.5; flat +1%/tier -> 27 × 2.5 = 67.5
 const sash: Item = { ...item, name: 'Test Sash', ac: 0, stats: {}, haste: 21 }
-assert.equal(score(sash, 0, flat), 10.5)
-assert.equal(score(sash, 6, flat), 15.3) // 13.5 + 1.8 void
-// Endurance: like HP but on the DPS weight — 10 × 0.1 × 1 = 1; tiers as a stat
+assert.equal(score(sash, 0, flat), 52.5)
+assert.equal(score(sash, 6, flat), 69.3) // 67.5 + 1.8 void
+// Endurance: token era weight — 10 × 0.05 × w.DPS(1) = 0.5; tiers as a stat
 const crown: Item = { ...item, name: 'Test Crown', ac: 0, stats: {}, end: 10 }
-assert.equal(score(crown, 0, flat), 1)
-assert.equal(score(crown, 6, flat), 3.4) // tierStat(10,6)=16 -> 1.6, + 1.8 void
-// Worn regen: 6 HP regen × 1.5 × w.HP(1) = 9; regen <10 so tiers add +1/tier
+assert.equal(score(crown, 0, flat), 0.5)
+assert.equal(r2(score(crown, 6, flat)), 2.6) // tierStat(10,6)=16 -> 0.8, + 1.8 void
+// Worn regen: 6 HP regen × 6 × w.HP(1) = 36; regen <10 so tiers add +1/tier
 const tunic: Item = { ...item, name: 'Test Tunic', ac: 0, stats: {}, hpRegen: 6 }
-assert.equal(score(tunic, 0, flat), 9)
-assert.equal(score(tunic, 3, flat), 14.4) // tierStat(6,3)=9 × 1.5 + 0.9 void
+assert.equal(score(tunic, 0, flat), 36)
+assert.equal(score(tunic, 3, flat), 54.9) // tierStat(6,3)=9 × 6 + 0.9 void
+// Classic regen lives in effect strings (Fungi = 15 HP/tick, FT I = 1 mana/tick)
+assert.equal(score({ ...tunic, hpRegen: 0, effect: 'Fungal Regrowth (Worn)' }, 0, flat), 90)
+assert.equal(score({ ...tunic, hpRegen: 0, effect: 'Flowing Thought I (Worn)' }, 0, flat), 6)
+assert.equal(score({ ...tunic, hpRegen: 0, effect: 'Ultravision (Worn)' }, 0, flat), 0)
+// Focus effects: flat 10 × w.MANA(1) credit
+assert.equal(score({ ...tunic, hpRegen: 0, focus: 'Improved Healing I' }, 0, flat), 10)
+// Monk trios pay for item weight in ranking (~1 AC per wt): a 9.0wt piece
+// loses 9 × w.AC(1) rank points vs its weightless twin; non-monk trios don't.
+const heavy: Item = { ...item, name: 'Test Breastplate', slots: ['Chest'], wt: 9 }
+assert.equal(rankScore({ ...heavy, wt: 0 }, 0, flat, 'Chest', ['MNK']) - rankScore(heavy, 0, flat, 'Chest', ['MNK']), 9)
+assert.equal(rankScore({ ...heavy, wt: 0 }, 0, flat, 'Chest', ['WAR']) - rankScore(heavy, 0, flat, 'Chest', ['WAR']), 0)
 
 // Primary ranks weapons ratio-first for melee trios: the user's 14/30 stiletto
 // must outrank a 10/30 stat stick despite the stick's higher raw score.
@@ -77,5 +99,12 @@ assert.ok(rankScore(blade, 0, flat, 'Primary', ['ROG', 'SHM', 'ENC']) > rankScor
 assert.ok(rankScore(stick, 0, flat, 'Primary', ['CLR', 'WIZ', 'ENC']) > rankScore(blade, 0, flat, 'Primary', ['CLR', 'WIZ', 'ENC']))
 assert.ok(rankScore(stick, 0, flat, 'Secondary', ['ROG', 'SHM', 'ENC']) > rankScore(blade, 0, flat, 'Secondary', ['ROG', 'SHM', 'ENC']))
 assert.ok(hasMeleeTrio(['BRD']) && !hasMeleeTrio(['CLR', 'WIZ']))
+// Rogue trios rank Primary piercers with a backstab term (+125/dmg): a 12/26
+// piercer must outrank a 14/28 slasher (which wins on white damage alone) for
+// rogues, while a rogue-less melee trio keeps them in white-damage order.
+const pierce: Item = { ...item, name: 'Test Dirk', slots: ['Primary'], ac: 0, stats: {}, dmg: 12, dly: 26, skill: 'Piercing' }
+const slash: Item = { ...item, name: 'Test Saber', slots: ['Primary'], ac: 0, stats: {}, dmg: 14, dly: 28, skill: '1H Slashing' }
+assert.ok(rankScore(pierce, 0, flat, 'Primary', ['ROG']) > rankScore(slash, 0, flat, 'Primary', ['ROG']))
+assert.ok(rankScore(slash, 0, flat, 'Primary', ['WAR']) > rankScore(pierce, 0, flat, 'Primary', ['WAR']))
 
 console.log('logic self-check OK —', inv.length, 'entries parsed')
