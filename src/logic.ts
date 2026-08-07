@@ -91,13 +91,16 @@ export const dmgBonus = (skill: string, dly: number) =>
   skill.startsWith('2H') ? (dly >= 28 ? 14 : 9) : 8
 export const rangedSkill = (s: string) => s === 'Archery' || s.startsWith('Throwing')
 
-// Worn regen effects and their per-tick values: FT I = 1 mana/tick (by
-// definition), Fungal Regrowth (Fungi) = 15 HP/tick, worn Regeneration = 9
-// HP/tick ("up to 9 hit points every 6 seconds" per its spell description).
-export const WORN_REGEN: Record<string, { hp?: number; mana?: number }> = {
-  'Flowing Thought I': { mana: 1 },
-  'Fungal Regrowth': { hp: 15 },
-  'Regeneration': { hp: 9 },
+// Worn regen effects to per-tick values: Flowing Thought N = N mana/tick (any
+// tier), Fungal Regrowth (Fungi) = 15 HP/tick, worn Regeneration = 9 HP/tick
+// ("up to 9 hit points every 6 seconds" per its spell description).
+const ROMAN: Record<string, number> = { I: 1, II: 2, III: 3, IV: 4, V: 5, VI: 6, VII: 7, VIII: 8, IX: 9, X: 10, XI: 11, XII: 12, XIII: 13, XIV: 14, XV: 15 }
+export const wornRegen = (effectName: string): { hp?: number; mana?: number } | undefined => {
+  const ft = effectName.match(/^Flowing Thought ([IVX]+)$/)
+  if (ft) return { mana: ROMAN[ft[1]] || 1 }
+  if (effectName === 'Fungal Regrowth') return { hp: 15 }
+  if (effectName === 'Regeneration') return { hp: 9 }
+  return undefined
 }
 
 // Worn haste's score contribution — shared with the Best Owned haste dedup
@@ -192,7 +195,9 @@ export function score(ci: Item, tier: number, w: Weights, slot?: string): number
   }
   // Combat procs fire ~1–2/min regardless of delay; a typical 50–100dd proc
   // ≈ 2 DPS. Flat tiebreaker credit — proc text is prose, not parseable.
-  if (ci.effect && ci.effect.includes('Combat') && wpnActive(slot, ci.skill)) s += 2 * w.DPS
+  // Weapon procs need the weapon to swing in the viewed slot; worn procs on
+  // armor fire off the wearer's own swings, so they count in any slot.
+  if (ci.effect && ci.effect.includes('(Combat') && (ci.dmg && ci.dly ? wpnActive(slot, ci.skill) : true)) s += 2 * w.DPS
   // 1% worn haste = 2.5 × DPS-weight points. Grounded in community parse math
   // (1% haste ≈ 1% auto-attack DPS ≈ 10 STR/ATK): sized so FBSS beats any pure
   // stat belt for melee and 41% belts rank near-BiS, matching P99/TAKP lists.
@@ -218,7 +223,7 @@ export function score(ci: Item, tier: number, w: Weights, slot?: string): number
   // 4 catalog items use those): credit the known effects at the same 30×-pool
   // rate. Untiered — whether tiers scale effects is unverified.
   if (ci.effect && ci.effect.includes('(Worn')) {
-    const wr = WORN_REGEN[ci.effect.split(' (')[0]]
+    const wr = wornRegen(ci.effect.split(' (')[0])
     if (wr) s += (wr.hp || 0) * 6 * w.HP + (wr.mana || 0) * 6 * w.MANA
   }
   // Every tiered item gains +1 SV Void per tier (verified in-game).
@@ -245,7 +250,10 @@ export const rankScore = (ci: Item, tier: number, w: Weights, slot: string, trio
     // "Backstab DMG" item stat replaces weapon damage in the backstab calc
     // (catalog shows it ≈ dmg, e.g. Rib-bone Stiletto 4dmg/7bs). Same ×100
     // scale as the white-damage boost so the two trade off proportionally.
-    if (trio.includes('ROG') && ci.skill === 'Piercing') s += (ci.backstab ? tierDmg(ci.backstab, tier) : d) * 125
+    // Only piercers the rogue can actually equip backstab (a WAR-only lance
+    // in a ROG/WAR trio must not get the boost).
+    if (trio.includes('ROG') && ci.skill === 'Piercing' && (!ci.classes.length || ci.classes.includes('ROG')))
+      s += (ci.backstab ? tierDmg(ci.backstab, tier) : d) * 125
   }
   return s
 }

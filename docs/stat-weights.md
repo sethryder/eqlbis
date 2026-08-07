@@ -102,9 +102,13 @@ L28; off-hand never gets it), which favors fast weapons and delay-bracketed 2H:
   since the catalog's regen fields are populated on only 4 items.
 - **Focus effects**: flat `10 × w.MANA` credit (w.MANA proxies how much a
   build casts); focus strings aren't graded into tiers.
-- **Best Owned haste dedup**: worn haste never stacks, so any owned item with
-  less haste than the best owned haste piece has its haste credit stripped
-  during the Best Owned assignment (per-slot browsing still shows full value).
+- **Best Owned haste dedup**: worn haste never stacks, so one keeper (highest
+  effective haste among real candidates, rank as tiebreak — unequippable bank
+  items can't suppress wearable ones) keeps haste credit and every other haste
+  item loses it from its *rank* during the Best Owned assignment. Displayed
+  scores stay raw so badges/below-equipped tags compare like for like; the
+  spares reservation reuses the same assignment. Per-slot browsing shows full
+  value.
 - **Still unscored by choice**: clicky effects (594 items — player-preference
   utility, surfaced by the Effects tab), bard instrument modifiers (mod values
   not in the scrape), worn damage shields (Aura of Battle, 7 items), monk

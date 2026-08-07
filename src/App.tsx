@@ -1,7 +1,7 @@
 import { Component, CSSProperties, ReactNode } from 'react'
 import {
   CLASSES, KEYS, GOALS, PRESETS, SLOT_TYPES, STAT_KEYS, W, WPN_TYPES,
-  WORN_REGEN, b64decode, b64encode, blendWeights, dmgBonus, fmt, hasteTerm, parseInv, r2, rangedSkill, rankScore, score, tierDmg, tierStat, wpnActive,
+  b64decode, b64encode, blendWeights, dmgBonus, fmt, hasteTerm, parseInv, r2, rangedSkill, rankScore, score, tierDmg, tierStat, wornRegen, wpnActive,
 } from './logic'
 import type { InvEntry, InvSource, Item, Weights } from './logic'
 
@@ -249,7 +249,7 @@ export default class App extends Component<{}, State> {
       if (v) add(k + ' ' + (v > 0 ? tierStat(v, tier) : v) + ' × ' + r2(w[k]), (v > 0 ? tierStat(v, tier) : v) * w[k])
     }
     if (ci.haste) add('Haste ' + (ci.haste + tier) + '% × 2.5 × ' + r2(w.DPS), (ci.haste + tier) * 2.5 * w.DPS)
-    if (ci.effect && ci.effect.includes('Combat') && wpnActive(slot, ci.skill)) add('Combat proc ≈ 2 dps × ' + r2(w.DPS), 2 * w.DPS)
+    if (ci.effect && ci.effect.includes('(Combat') && (ci.dmg && ci.dly ? wpnActive(slot, ci.skill) : true)) add('Combat proc ≈ 2 dps × ' + r2(w.DPS), 2 * w.DPS)
     if (ci.focus) add('Focus effect + 10 × ' + r2(w.MANA || 0) + ' mana wt', 10 * (w.MANA || 0))
     if (ci.hp) add('HP ' + tierStat(ci.hp, tier) + ' × 0.2 × ' + r2(w.HP), tierStat(ci.hp, tier) * 0.2 * w.HP)
     if (ci.mana) add('Mana ' + tierStat(ci.mana, tier) + ' × 0.2 × ' + r2(w.MANA), tierStat(ci.mana, tier) * 0.2 * w.MANA)
@@ -259,7 +259,7 @@ export default class App extends Component<{}, State> {
     if (ci.manaRegen) add('Mana Regen ' + tierStat(ci.manaRegen, tier) + ' × 6 × ' + r2(w.MANA), tierStat(ci.manaRegen, tier) * 6 * w.MANA)
     if (ci.endRegen) add('End Regen ' + tierStat(ci.endRegen, tier) + ' × 1.5 × ' + r2(w.DPS), tierStat(ci.endRegen, tier) * 1.5 * w.DPS)
     if (ci.effect && ci.effect.includes('(Worn')) {
-      const wr = WORN_REGEN[ci.effect.split(' (')[0]]
+      const wr = wornRegen(ci.effect.split(' (')[0])
       if (wr?.hp) add('Worn ' + ci.effect.split(' (')[0] + ' (' + wr.hp + ' HP/tick) × 6 × ' + r2(w.HP), wr.hp * 6 * w.HP)
       if (wr?.mana) add('Worn ' + ci.effect.split(' (')[0] + ' (' + wr.mana + ' mana/tick) × 6 × ' + r2(w.MANA), wr.mana * 6 * w.MANA)
     }
@@ -452,19 +452,25 @@ export default class App extends Component<{}, State> {
     const ownedPicks = new Map<string, OwnedPick[]>()
     {
       const cands: (OwnedPick & { rk: number; slot: string; inSlot: boolean })[] = []
-      // Worn haste never stacks — only the highest item counts. Any owned item
-      // with less haste than the best owned haste piece gets its haste credit
-      // stripped here, so Best Owned doesn't stack "upgrades" that add nothing.
-      const bestHaste = Math.max(0, ...pool.map(e => { const ci = known(e); return ci?.haste ? ci.haste + e.tier : 0 }))
       for (const slot of SLOT_TYPES) {
         const wRow = slot === 'Any Slot' ? gw : w
         for (const e of pool) {
           const ci = known(e)
           if (!ci || !slotFits(ci, slot) || !this.usable(ci) || !wpnOk(ci)) continue
-          const dupHaste = ci.haste && ci.haste + e.tier < bestHaste ? hasteTerm(ci.haste, e.tier, wRow) : 0
-          cands.push({ e, ci, sc: score(ci, e.tier, wRow, slot) - dupHaste, rk: rankScore(ci, e.tier, wRow, slot, trio) - dupHaste, slot, inSlot: e.source === 'equipped' && e.loc === slot })
+          cands.push({ e, ci, sc: score(ci, e.tier, wRow, slot), rk: rankScore(ci, e.tier, wRow, slot, trio), slot, inSlot: e.source === 'equipped' && e.loc === slot })
         }
       }
+      // Worn haste never stacks — only the highest item counts. Keep haste
+      // credit on the single best wearable haste item (highest %, then rank —
+      // computed over real candidates, so unequippable bank items can't
+      // suppress wearable ones) and strip it from every other haste
+      // candidate's rank, equal-haste ties included. Rank only: displayed
+      // scores stay raw so badges and the below-equipped tag compare like
+      // for like; the dedup decides who claims a slot, not what items show.
+      const hasteOf = (c: { ci: Item; e: InvEntry }) => c.ci.haste ? c.ci.haste + c.e.tier : 0
+      let keeper: (typeof cands)[0] | null = null
+      for (const c of cands) if (hasteOf(c) && (!keeper || hasteOf(c) > hasteOf(keeper) || (hasteOf(c) === hasteOf(keeper) && c.rk > keeper.rk))) keeper = c
+      for (const c of cands) if (c.ci.haste && keeper && c.e !== keeper.e) c.rk -= hasteTerm(c.ci.haste, c.e.tier, c.slot === 'Any Slot' ? gw : w)
       cands.sort((a, b) => b.rk - a.rk || (b.inSlot ? 1 : 0) - (a.inSlot ? 1 : 0))
       const used = new Set<InvEntry>()
       for (const c of cands) {
@@ -495,7 +501,11 @@ export default class App extends Component<{}, State> {
       const nWant = slot === 'Any Slot' ? 3 : (slot === 'Ear' || slot === 'Wrist' || slot === 'Fingers') ? 2 : 1
       const eqScores = eqEntries.map(e => { const ci = known(e); return ci ? score(ci, e.tier, wRow, slot) : 0 }).sort((a, b) => b - a)
       const eqRks = eqEntries.map(e => { const ci = known(e); return ci ? rankScore(ci, e.tier, wRow, slot, trio) : 0 }).sort((a, b) => b - a)
-      const bestEqRatio = Math.max(0, ...eqEntries.map(e => { const ci = known(e); return ci && ci.dmg && ci.dly ? tierDmg(ci.dmg, e.tier) / ci.dly : 0 }))
+      // Effective ratio on the familiar dmg/dly scale, but damage-bonus aware
+      // — (2×dmg + bonus)/(2×dly) — so the "ratio +X" label agrees with the
+      // rankScore boost that decides upgrade-ness.
+      const effRatio = (ci: Item, tier: number) => ci.dmg && ci.dly ? (2 * tierDmg(ci.dmg, tier) + dmgBonus(ci.skill, ci.dly)) / (2 * ci.dly) : 0
+      const bestEqRatio = Math.max(0, ...eqEntries.map(e => { const ci = known(e); return ci ? effRatio(ci, e.tier) : 0 }))
       const tops = st.catalog
         .filter(ci => slotFits(ci, slot) && this.usable(ci) && lvlOk(ci) && wpnOk(ci) && obtOk(ci))
         .map(ci => ({ ci, sc: score(ci, 0, wRow, slot), rk: rankScore(ci, 0, wRow, slot, trio) }))
@@ -505,12 +515,12 @@ export default class App extends Component<{}, State> {
         // Upgrade-ness follows the slot ranking (ratio-first on Primary); when a
         // weapon wins on ratio but not raw score, say so instead of "+0.0".
         const upgrade = x.rk - (eqRks[i] || 0) > 0.05
-        const ratioGain = x.ci.dmg && x.ci.dly ? r2(x.ci.dmg / x.ci.dly - bestEqRatio) : 0
+        const ratioGain = r2(effRatio(x.ci, 0) - bestEqRatio)
         const owned = pool.some(e => e.base.toLowerCase() === x.ci.name.toLowerCase())
         return {
           name: x.ci.name, ci: x.ci,
           ...this.dispItem(x.ci, 0, wRow, [srcLabel(x.ci), ...(x.ci.level ? ['lvl ' + x.ci.level + '+'] : [])], slot),
-          deltaText: owned ? 'owned' : (eqEntries.length ? (!upgrade ? '✓ best' : delta > 0.05 ? '+' + fmt(delta) : 'ratio +' + ratioGain) : fmt(x.sc)),
+          deltaText: owned ? 'owned' : (eqEntries.length ? (!upgrade ? '✓ best' : delta > 0.05 ? '+' + fmt(delta) : ratioGain > 0 ? 'ratio +' + ratioGain : '↑ rank') : fmt(x.sc)),
           deltaColor: upgrade && !owned ? 'var(--good)' : 'var(--muted)',
           delta, upgrade, owned,
         }
@@ -634,21 +644,11 @@ export default class App extends Component<{}, State> {
       return [...picks, ...armor].slice(0, n)
     }
     // spares only — never suggest gear you're wearing, nor anything you'd wear
-    // yourself: per slot, the top owned picks up to what the slot holds
-    // (2 for the paired slots; 2 for Any Slot, matching the inventory export)
+    // yourself. "What you'd wear" is exactly the Best Owned assignment above
+    // (same slot caps, same one-item-one-slot rule, same haste dedup), so
+    // reuse it instead of re-deriving it.
     const reserved = new Set<InvEntry>()
-    for (const slot of SLOT_TYPES) {
-      const wRow = slot === 'Any Slot' ? gw : w
-      pool
-        .map(e => ({ e, ci: known(e) }))
-        // skip entries already reserved by an earlier slot — one physical item
-        // can only cover one of your slots (dual-wield pairs, ring pairs)
-        .filter((x): x is { e: InvEntry; ci: Item } => !!x.ci && !reserved.has(x.e) && slotFits(x.ci, slot) && this.usable(x.ci) && wpnOk(x.ci))
-        .sort((a, b) => rankScore(b.ci, b.e.tier, wRow, slot, trio) - rankScore(a.ci, a.e.tier, wRow, slot, trio))
-        .slice(0, SLOT_CAP[slot] || 1)
-        .filter(x => x.e.source !== 'equipped')
-        .forEach(x => reserved.add(x.e))
-    }
+    for (const list of ownedPicks.values()) for (const p of list) if (p.e.source !== 'equipped') reserved.add(p.e)
     const ownedLoadout = pet ? buildLoadout(
       pool.filter(e => e.source !== 'equipped' && !reserved.has(e))
         .map(e => ({ e, ci: known(e) })).filter((x): x is { e: InvEntry; ci: Item } => !!x.ci && petUsable(x.ci))
@@ -989,7 +989,7 @@ export default class App extends Component<{}, State> {
                     {st.compare.map((c, i) => {
                       const ci = idx.get(c.name.toLowerCase())
                       if (!ci) return null
-                      const eqSc = Math.max(0, ...inv.filter(e => e.source === 'equipped' && e.loc === c.slot).map(e => { const k = known(e); return k ? score(k, e.tier, w) : 0 }))
+                      const eqSc = Math.max(0, ...inv.filter(e => e.source === 'equipped' && e.loc === c.slot).map(e => { const k = known(e); return k ? score(k, e.tier, w, c.slot) : 0 }))
                       const diff = score(ci, c.tier, w, c.slot) - eqSc
                       const setC = (next: State['compare']) => this.setState({ compare: next })
                       return (

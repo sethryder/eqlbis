@@ -77,10 +77,15 @@ assert.equal(r2(score(crown, 6, flat)), 2.6) // tierStat(10,6)=16 -> 0.8, + 1.8 
 const tunic: Item = { ...item, name: 'Test Tunic', ac: 0, stats: {}, hpRegen: 6 }
 assert.equal(score(tunic, 0, flat), 36)
 assert.equal(score(tunic, 3, flat), 54.9) // tierStat(6,3)=9 × 6 + 0.9 void
-// Classic regen lives in effect strings (Fungi = 15 HP/tick, FT I = 1 mana/tick)
+// Classic regen lives in effect strings (Fungi = 15 HP/tick, FT N = N mana/tick)
 assert.equal(score({ ...tunic, hpRegen: 0, effect: 'Fungal Regrowth (Worn)' }, 0, flat), 90)
 assert.equal(score({ ...tunic, hpRegen: 0, effect: 'Flowing Thought I (Worn)' }, 0, flat), 6)
+assert.equal(score({ ...tunic, hpRegen: 0, effect: 'Flowing Thought III (Worn)' }, 0, flat), 18)
 assert.equal(score({ ...tunic, hpRegen: 0, effect: 'Ultravision (Worn)' }, 0, flat), 0)
+// Worn combat procs on armor (no dmg/dly) count in any slot; weapon procs
+// only where the weapon swings
+assert.equal(score({ ...tunic, hpRegen: 0, effect: 'Anarchy (Combat)' }, 0, flat, 'Chest'), 2)
+assert.equal(score({ ...wpn, effect: 'Ykesha (Combat, Casting Time: Instant)' }, 0, flat, 'Range'), 0)
 // Focus effects: flat 10 × w.MANA(1) credit
 assert.equal(score({ ...tunic, hpRegen: 0, focus: 'Improved Healing I' }, 0, flat), 10)
 // Item weight must NOT enter ranking: a per-item wt penalty (tried once for
@@ -106,5 +111,7 @@ const pierce: Item = { ...item, name: 'Test Dirk', slots: ['Primary'], ac: 0, st
 const slash: Item = { ...item, name: 'Test Saber', slots: ['Primary'], ac: 0, stats: {}, dmg: 14, dly: 28, skill: '1H Slashing' }
 assert.ok(rankScore(pierce, 0, flat, 'Primary', ['ROG']) > rankScore(slash, 0, flat, 'Primary', ['ROG']))
 assert.ok(rankScore(slash, 0, flat, 'Primary', ['WAR']) > rankScore(pierce, 0, flat, 'Primary', ['WAR']))
+// ...and only for piercers the rogue can equip: a WAR-only lance gets no boost
+assert.ok(rankScore({ ...pierce, classes: ['WAR'] }, 0, flat, 'Primary', ['ROG', 'WAR']) < rankScore(pierce, 0, flat, 'Primary', ['ROG', 'WAR']))
 
 console.log('logic self-check OK —', inv.length, 'entries parsed')
