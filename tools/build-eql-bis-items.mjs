@@ -217,12 +217,15 @@ function parseItem(title, text, zoneSet = new Set(), zoneLevels = new Map()) {
   if (cats.includes("Player Crafted") || param(text, "playercrafted").trim()) flags.push("CRAFTED");
   if (/ATTUN[EA]+BLE/i.test(statsText)) flags.push("ATTUNABLE"); // "Attunable" / "ATTUNEABLE"
 
-  const skill = (statsText.match(/Skill:\s*([A-Za-z0-9 ]+?)\s+(?:Atk|<br)/i) || [])[1]?.trim() || "";
-  // ponytail: the wiki has no shield marker (no category, no statsblock line),
-  // so shields are detected by name among AC'd no-damage Secondary items;
-  // extend the word list if one slips through.
-  const isShield = !skill && !parsed.dmg && parsed.ac > 0 && parsed.slots.includes("Secondary") &&
-    /\b(shield|buckler|targe|aegis|bulwark|defender|protector)\b/i.test(param(text, "itemname") || title);
+  // \s* before <br: some statsblocks write "Skill: SHIELD<br>" with no space.
+  const skillRaw = (statsText.match(/Skill:\s*([A-Za-z0-9 ]+?)\s*(?:Atk|<br)/i) || [])[1]?.trim() || "";
+  const skill = /^shield$/i.test(skillRaw) ? "Shield" : skillRaw;
+  // Shield detection is layered: an explicit "Skill: SHIELD" statsblock line
+  // (rare) wins; else shield-words in the name among AC'd no-damage Secondary
+  // items; main() adds an icon-propagation pass that catches the rest and
+  // warns about anything still ambiguous.
+  const isShield = skill === "Shield" || (!skill && !parsed.dmg && parsed.ac > 0 && parsed.slots.includes("Secondary") &&
+    /\b(shield|buckler|targe|aegis|bulwark|defender|protector)\b/i.test(param(text, "itemname") || title));
 
   const zones = [], mobs = [];
   const addZone = (z) => { z = z.trim(); if (z && !zones.includes(z)) zones.push(z); };
@@ -258,7 +261,7 @@ function parseItem(title, text, zoneSet = new Set(), zoneLevels = new Map()) {
 
   return {
     name: param(text, "itemname") || title,
-    type: classifyType(cats, parsed.slots, skill),
+    type: classifyType(cats, parsed.slots, isShield ? "" : skill),
     skill: skill || (isShield ? "Shield" : "") || cats.find((c) => WEAPON_CATS.has(c)) || "",
     slots: parsed.slots,
     classes: parsed.classes,
@@ -335,6 +338,18 @@ async function main() {
     const floor = Math.min(...it._mobs.map((m) => mobLv.get(m)).filter(Boolean), Infinity);
     if (!it._explicitLevel && !it.vendors.length && Number.isFinite(floor)) it.level = Math.min(50, floor);
     delete it._mobs; delete it._explicitLevel;
+  }
+
+  // Shields the wiki doesn't label: shield icons are a small closed set (and
+  // new content reuses the classic icon sheet), so propagate skill "Shield" to
+  // AC'd no-damage Secondary items sharing an icon with a known shield.
+  // Anything AC'd in Secondary still unclassified is likely a held item (orb,
+  // totem, instrument) — warn so new content gets a human look, not silence.
+  const shieldIcons = new Set(out.filter((i) => i.skill === "Shield" && i.icon).map((i) => i.icon));
+  for (const it of out) {
+    if (it.skill || it.dmg || !(it.ac > 0) || !it.slots.includes("Secondary")) continue;
+    if (shieldIcons.has(it.icon)) it.skill = "Shield";
+    else process.stderr.write(`possible unlabeled shield (AC'd Secondary, kept unclassified): ${it.name}\n`);
   }
 
   process.stderr.write(`\nDone. ${out.length} equippable items.\n`);
