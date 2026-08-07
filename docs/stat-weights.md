@@ -102,14 +102,16 @@ L28; off-hand never gets it), which favors fast weapons and delay-bracketed 2H:
   since the catalog's regen fields are populated on only 4 items.
 - **Focus effects**: flat `10 × w.MANA` credit (w.MANA proxies how much a
   build casts); focus strings aren't graded into tiers.
-- **Monk weight**: MNK trios pay `wt × w.AC` in ranking — monks lose AC past a
-  level-based total-weight cap (~32wt at 50), so ~1 AC of badness per wt.
 - **Best Owned haste dedup**: worn haste never stacks, so any owned item with
   less haste than the best owned haste piece has its haste credit stripped
   during the Best Owned assignment (per-slot browsing still shows full value).
 - **Still unscored by choice**: clicky effects (594 items — player-preference
   utility, surfaced by the Effects tab), bard instrument modifiers (mod values
-  not in the scrape), worn damage shields (Aura of Battle, 7 items).
+  not in the scrape), worn damage shields (Aura of Battle, 7 items), monk
+  weight caps (a per-item `wt` penalty was tried and reverted — it made a
+  stats-less candle "Best Owned" over a real bow; the in-game cap is on total
+  kit weight, which per-slot ranking can't see, and it's unconfirmed EQL even
+  applies monk weight caps to trios).
 
 Weapon sources: P99 Game Mechanics (damage bonus, DW/DA), Lucy dmgbonus table
 via eqemulator.org t=26293, P99 Skill_Backstab + t-60673 (Ragebringer 553 max

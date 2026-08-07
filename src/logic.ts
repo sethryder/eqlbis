@@ -247,10 +247,6 @@ export const rankScore = (ci: Item, tier: number, w: Weights, slot: string, trio
     // scale as the white-damage boost so the two trade off proportionally.
     if (trio.includes('ROG') && ci.skill === 'Piercing') s += (ci.backstab ? tierDmg(ci.backstab, tier) : d) * 125
   }
-  // Monks lose AC past a level-based total-weight cap (~32wt at 50), so item
-  // weight is a real cost for them: ≈1 AC of badness per wt. Like the other
-  // trio-dependent adjustments this shapes ranking, not the displayed score.
-  if (trio.includes('MNK') && ci.wt) s -= ci.wt * w.AC
   return s
 }
 

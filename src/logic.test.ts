@@ -83,11 +83,11 @@ assert.equal(score({ ...tunic, hpRegen: 0, effect: 'Flowing Thought I (Worn)' },
 assert.equal(score({ ...tunic, hpRegen: 0, effect: 'Ultravision (Worn)' }, 0, flat), 0)
 // Focus effects: flat 10 × w.MANA(1) credit
 assert.equal(score({ ...tunic, hpRegen: 0, focus: 'Improved Healing I' }, 0, flat), 10)
-// Monk trios pay for item weight in ranking (~1 AC per wt): a 9.0wt piece
-// loses 9 × w.AC(1) rank points vs its weightless twin; non-monk trios don't.
+// Item weight must NOT enter ranking: a per-item wt penalty (tried once for
+// monk weight caps) made a stats-less 0.1wt candle "Best Owned" over a real
+// bow — the in-game cap is on total kit weight, not per item.
 const heavy: Item = { ...item, name: 'Test Breastplate', slots: ['Chest'], wt: 9 }
-assert.equal(rankScore({ ...heavy, wt: 0 }, 0, flat, 'Chest', ['MNK']) - rankScore(heavy, 0, flat, 'Chest', ['MNK']), 9)
-assert.equal(rankScore({ ...heavy, wt: 0 }, 0, flat, 'Chest', ['WAR']) - rankScore(heavy, 0, flat, 'Chest', ['WAR']), 0)
+assert.equal(rankScore({ ...heavy, wt: 0 }, 0, flat, 'Chest', ['MNK']), rankScore(heavy, 0, flat, 'Chest', ['MNK']))
 
 // Primary ranks weapons ratio-first for melee trios: the user's 14/30 stiletto
 // must outrank a 10/30 stat stick despite the stick's higher raw score.
