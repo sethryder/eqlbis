@@ -1,7 +1,7 @@
 // Self-check for the parse + scoring core. Run: npm test (node 22.18+ strips types natively).
 import { readFileSync } from 'node:fs'
 import assert from 'node:assert/strict'
-import { blendWeights, hasMeleeTrio, parseInv, r2, rankScore, score, tierDmg, tierStat } from './logic.ts'
+import { blendWeights, hasMeleeTrio, parseInv, parts, r2, rankScore, score, tierDmg, tierStat, whyDiff } from './logic.ts'
 import type { Item } from './logic.ts'
 
 const inv = parseInv(readFileSync(new URL('../public/Washclof_oggok-Inventory.txt', import.meta.url), 'utf8'))
@@ -113,5 +113,24 @@ assert.ok(rankScore(pierce, 0, flat, 'Primary', ['ROG']) > rankScore(slash, 0, f
 assert.ok(rankScore(slash, 0, flat, 'Primary', ['WAR']) > rankScore(pierce, 0, flat, 'Primary', ['WAR']))
 // ...and only for piercers the rogue can equip: a WAR-only lance gets no boost
 assert.ok(rankScore({ ...pierce, classes: ['WAR'] }, 0, flat, 'Primary', ['ROG', 'WAR']) < rankScore(pierce, 0, flat, 'Primary', ['ROG', 'WAR']))
+
+// parts() must never drift from score(): sum of contributions == score, across
+// every term branch (weapon+tier, haste, end, regen, worn effects, proc, focus).
+for (const [ci, t, sl] of [
+  [item, 0], [item, 6], [wpn, 0], [wpn, 6], [sash, 6], [crown, 6], [tunic, 3],
+  [{ ...tunic, hpRegen: 0, effect: 'Fungal Regrowth (Worn)' }, 0],
+  [{ ...tunic, hpRegen: 0, effect: 'Flowing Thought III (Worn)' }, 2],
+  [{ ...wpn, effect: 'Ykesha (Combat, Casting Time: Instant)' }, 0, 'Primary'],
+  [{ ...wpn, skill: 'Archery' }, 0, 'Range'],
+  [{ ...tunic, hpRegen: 0, focus: 'Improved Healing I', manaRegen: 2 }, 1],
+] as [Item, number, string?][]) {
+  const sum = parts(ci, t, flat, sl).reduce((s, p) => s + p.val, 0)
+  assert.ok(Math.abs(sum - score(ci, t, flat, sl)) < 1e-9, 'parts drift on ' + ci.name)
+}
+// whyDiff: biggest contribution delta first, signed toward the first item
+const why = whyDiff(stick, 0, blade, 0, flat)
+assert.equal(why[0][0], 'WIS')  // stick's WIS 15 is the biggest mover
+assert.equal(r2(why[0][1]), 15)
+assert.ok(why.some(([k, v]) => k === 'DPS' && v < 0)) // blade wins on DPS
 
 console.log('logic self-check OK —', inv.length, 'entries parsed')

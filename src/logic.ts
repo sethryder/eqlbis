@@ -231,6 +231,53 @@ export function score(ci: Item, tier: number, w: Weights, slot?: string): number
   return s
 }
 
+// score() decomposed into labeled contributions, for the score tooltip and the
+// "why is this better" diff. Same math as score() with a canonical key per
+// term so two items' breakdowns can be compared key-by-key. score() stays the
+// separate fast path (it runs catalog × slots per render); the self-check
+// asserts the two never drift.
+export type Part = { key: string; label: string; val: number }
+export function parts(ci: Item, tier: number, w: Weights, slot?: string): Part[] {
+  const P: Part[] = []
+  const add = (key: string, label: string, val: number) => { if (val) P.push({ key, label, val }) }
+  if (ci.dmg && ci.dly && wpnActive(slot, ci.skill)) {
+    const d = tierDmg(ci.dmg, tier), b = dmgBonus(ci.skill, ci.dly)
+    add('DPS', '(2×' + d + 'dmg + ' + b + ' bonus)/' + ci.dly + 'dly × 10' + (rangedSkill(ci.skill) ? ' × 0.5 ranged' : '') + ' × ' + r2(w.DPS) + ' dps',
+      ((2 * d + b) / ci.dly) * 10 * (rangedSkill(ci.skill) ? 0.5 : 1) * w.DPS)
+  }
+  if (ci.ac) add('AC', 'AC ' + tierStat(ci.ac, tier) + ' × ' + r2(w.AC), tierStat(ci.ac, tier) * w.AC)
+  for (const k of STAT_KEYS) {
+    const v = ci.stats[k] || 0
+    if (v) add(k, k + ' ' + (v > 0 ? tierStat(v, tier) : v) + ' × ' + r2(w[k] || 0), (v > 0 ? tierStat(v, tier) : v) * (w[k] || 0))
+  }
+  if (ci.haste) add('Haste', 'Haste ' + (ci.haste + tier) + '% × 2.5 × ' + r2(w.DPS), hasteTerm(ci.haste, tier, w))
+  if (ci.effect && ci.effect.includes('(Combat') && (ci.dmg && ci.dly ? wpnActive(slot, ci.skill) : true)) add('Proc', 'Combat proc ≈ 2 dps × ' + r2(w.DPS), 2 * w.DPS)
+  if (ci.focus) add('Focus', 'Focus effect + 10 × ' + r2(w.MANA || 0) + ' mana wt', 10 * (w.MANA || 0))
+  if (ci.hp) add('HP', 'HP ' + tierStat(ci.hp, tier) + ' × 0.2 × ' + r2(w.HP), tierStat(ci.hp, tier) * 0.2 * w.HP)
+  if (ci.mana) add('Mana', 'Mana ' + tierStat(ci.mana, tier) + ' × 0.2 × ' + r2(w.MANA), tierStat(ci.mana, tier) * 0.2 * w.MANA)
+  if (ci.end) add('END', 'END ' + tierStat(ci.end, tier) + ' × 0.05 × ' + r2(w.DPS), tierStat(ci.end, tier) * 0.05 * w.DPS)
+  if (ci.stats.SV) add('Resists', 'Resists ' + tierStat(ci.stats.SV, tier) + ' × 0.3 × ' + r2(w.SV), tierStat(ci.stats.SV, tier) * 0.3 * w.SV)
+  if (ci.hpRegen) add('HP Regen', 'HP Regen ' + tierStat(ci.hpRegen, tier) + ' × 6 × ' + r2(w.HP), tierStat(ci.hpRegen, tier) * 6 * w.HP)
+  if (ci.manaRegen) add('Mana Regen', 'Mana Regen ' + tierStat(ci.manaRegen, tier) + ' × 6 × ' + r2(w.MANA), tierStat(ci.manaRegen, tier) * 6 * w.MANA)
+  if (ci.endRegen) add('End Regen', 'End Regen ' + tierStat(ci.endRegen, tier) + ' × 1.5 × ' + r2(w.DPS), tierStat(ci.endRegen, tier) * 1.5 * w.DPS)
+  if (ci.effect && ci.effect.includes('(Worn')) {
+    const name = ci.effect.split(' (')[0], wr = wornRegen(name)
+    if (wr?.hp) add('HP Regen', 'Worn ' + name + ' (' + wr.hp + ' HP/tick) × 6 × ' + r2(w.HP), wr.hp * 6 * w.HP)
+    if (wr?.mana) add('Mana Regen', 'Worn ' + name + ' (' + wr.mana + ' mana/tick) × 6 × ' + r2(w.MANA), wr.mana * 6 * w.MANA)
+  }
+  if (tier) add('SV Void', 'SV Void ' + tier + ' × 0.3 × ' + r2(w.SV), tier * 0.3 * w.SV)
+  return P
+}
+
+// Why item a outscores item b: per-key contribution diff, biggest first.
+// Duplicate keys (regen field + worn regen effect) accumulate.
+export function whyDiff(a: Item, at: number, b: Item, bt: number, w: Weights, slot?: string): [string, number][] {
+  const d = new Map<string, number>()
+  for (const p of parts(a, at, w, slot)) d.set(p.key, (d.get(p.key) || 0) + p.val)
+  for (const p of parts(b, bt, w, slot)) d.set(p.key, (d.get(p.key) || 0) - p.val)
+  return [...d].filter(([, v]) => Math.abs(v) >= 0.05).sort((x, y) => Math.abs(y[1]) - Math.abs(x[1]))
+}
+
 // Primary is an auto-attack slot: when the trio has any melee or hybrid class,
 // real weapons rank by dmg/dly ratio first and stats only tiebreak (a wis stick
 // must not beat a better-ratio blade). Done as a large additive boost so every

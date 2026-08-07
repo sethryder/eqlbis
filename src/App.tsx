@@ -1,7 +1,7 @@
 import { Component, CSSProperties, ReactNode } from 'react'
 import {
   CLASSES, KEYS, GOALS, PRESETS, SLOT_TYPES, STAT_KEYS, W, WPN_TYPES,
-  b64decode, b64encode, blendWeights, dmgBonus, fmt, hasteTerm, parseInv, r2, rangedSkill, rankScore, score, tierDmg, tierStat, wornRegen, wpnActive,
+  b64decode, b64encode, blendWeights, dmgBonus, fmt, hasteTerm, parseInv, parts, r2, rankScore, score, tierDmg, tierStat, whyDiff,
 } from './logic'
 import type { InvEntry, InvSource, Item, Weights } from './logic'
 
@@ -235,38 +235,20 @@ export default class App extends Component<{}, State> {
   }
 
   tipFor(ci: Item, tier: number, w: Weights, slot?: string): TipLine[] {
-    const L: TipLine[] = []
-    const add = (label: string, val: number) => { if (val) L.push({ label, val: fmt(val) }) }
-    if (ci.dmg && ci.dly && wpnActive(slot, ci.skill)) {
-      const d = tierDmg(ci.dmg, tier)
-      const b = dmgBonus(ci.skill, ci.dly)
-      add('(2×' + d + 'dmg + ' + b + ' bonus)/' + ci.dly + 'dly × 10' + (rangedSkill(ci.skill) ? ' × 0.5 ranged' : '') + ' × ' + r2(w.DPS) + ' dps',
-        ((2 * d + b) / ci.dly) * 10 * (rangedSkill(ci.skill) ? 0.5 : 1) * w.DPS)
-    }
-    if (ci.ac) add('AC ' + tierStat(ci.ac, tier) + ' × ' + r2(w.AC), tierStat(ci.ac, tier) * w.AC)
-    for (const k of STAT_KEYS) {
-      const v = ci.stats[k] || 0
-      if (v) add(k + ' ' + (v > 0 ? tierStat(v, tier) : v) + ' × ' + r2(w[k]), (v > 0 ? tierStat(v, tier) : v) * w[k])
-    }
-    if (ci.haste) add('Haste ' + (ci.haste + tier) + '% × 2.5 × ' + r2(w.DPS), (ci.haste + tier) * 2.5 * w.DPS)
-    if (ci.effect && ci.effect.includes('(Combat') && (ci.dmg && ci.dly ? wpnActive(slot, ci.skill) : true)) add('Combat proc ≈ 2 dps × ' + r2(w.DPS), 2 * w.DPS)
-    if (ci.focus) add('Focus effect + 10 × ' + r2(w.MANA || 0) + ' mana wt', 10 * (w.MANA || 0))
-    if (ci.hp) add('HP ' + tierStat(ci.hp, tier) + ' × 0.2 × ' + r2(w.HP), tierStat(ci.hp, tier) * 0.2 * w.HP)
-    if (ci.mana) add('Mana ' + tierStat(ci.mana, tier) + ' × 0.2 × ' + r2(w.MANA), tierStat(ci.mana, tier) * 0.2 * w.MANA)
-    if (ci.end) add('END ' + tierStat(ci.end, tier) + ' × 0.05 × ' + r2(w.DPS), tierStat(ci.end, tier) * 0.05 * w.DPS)
-    if (ci.stats.SV) add('Resists ' + tierStat(ci.stats.SV, tier) + ' × 0.3 × ' + r2(w.SV), tierStat(ci.stats.SV, tier) * 0.3 * w.SV)
-    if (ci.hpRegen) add('HP Regen ' + tierStat(ci.hpRegen, tier) + ' × 6 × ' + r2(w.HP), tierStat(ci.hpRegen, tier) * 6 * w.HP)
-    if (ci.manaRegen) add('Mana Regen ' + tierStat(ci.manaRegen, tier) + ' × 6 × ' + r2(w.MANA), tierStat(ci.manaRegen, tier) * 6 * w.MANA)
-    if (ci.endRegen) add('End Regen ' + tierStat(ci.endRegen, tier) + ' × 1.5 × ' + r2(w.DPS), tierStat(ci.endRegen, tier) * 1.5 * w.DPS)
-    if (ci.effect && ci.effect.includes('(Worn')) {
-      const wr = wornRegen(ci.effect.split(' (')[0])
-      if (wr?.hp) add('Worn ' + ci.effect.split(' (')[0] + ' (' + wr.hp + ' HP/tick) × 6 × ' + r2(w.HP), wr.hp * 6 * w.HP)
-      if (wr?.mana) add('Worn ' + ci.effect.split(' (')[0] + ' (' + wr.mana + ' mana/tick) × 6 × ' + r2(w.MANA), wr.mana * 6 * w.MANA)
-    }
-    if (tier) add('SV Void ' + tier + ' × 0.3 × ' + r2(w.SV), tier * 0.3 * w.SV)
+    const L: TipLine[] = parts(ci, tier, w, slot).map(p => ({ label: p.label, val: fmt(p.val) }))
     if (tier) L.push({ label: 'stats at tier +' + tier + ' (+10%/tier, min +1; dmg +10%/tier; haste +1%/tier; +1 SV Void/tier)', val: '' })
     L.push({ label: 'Score · weights from your trio', val: fmt(score(ci, tier, w, slot)), bold: true })
     return L
+  }
+
+  // "Why is this better" tooltip lines: contribution deltas vs the item it
+  // displaced, biggest movers first.
+  whyLines(a: Item, at: number, b: Item, bt: number, w: Weights, slot?: string): TipLine[] {
+    const top = whyDiff(a, at, b, bt, w, slot)
+    return top.length ? [
+      { label: 'why, vs ' + b.name + (bt ? ' +' + bt : ''), val: '', bold: true },
+      ...top.slice(0, 6).map(([k, v]) => ({ label: k, val: (v > 0 ? '+' : '') + fmt(v) })),
+    ] : []
   }
 
   // Real item icon from the EQ Legends dragitem*.png sheets (same math as
@@ -309,7 +291,7 @@ export default class App extends Component<{}, State> {
     return (
       <span className="sctip">
         {tip.map((tl, i) => (
-          <span key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+          <span key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, ...(tl.bold ? { fontWeight: 600, borderTop: '1px solid var(--border)', paddingTop: 5, marginTop: 3 } : null) }}>
             <span style={{ color: 'var(--muted)' }}>{tl.label}</span>
             <span style={{ color: 'var(--accent)' }}>{tl.val}</span>
           </span>
@@ -329,7 +311,7 @@ export default class App extends Component<{}, State> {
   // (flags, class, race, slot), then a two-column ledger — labels left, values
   // right-aligned — grouping physique beside combat and stats beside resists.
   // Shows tier-adjusted values on merged (+N) items, like the game does.
-  infoTip(ci: Item, tier = 0) {
+  infoTip(ci: Item, tier = 0, why: TipLine[] = []) {
     type Pair = [string, string | number, string?] // label, value, value color
     const eff = (v: number) => (v > 0 ? tierStat(v, tier) : v)
     const STAT_NAMES: Record<string, string> = { STR: 'Strength', STA: 'Stamina', AGI: 'Agility', DEX: 'Dexterity', WIS: 'Wisdom', INT: 'Intelligence', CHA: 'Charisma' }
@@ -406,6 +388,16 @@ export default class App extends Component<{}, State> {
           <span style={{ display: 'flex', flexDirection: 'column', gap: 1, color: 'var(--muted)', borderTop: '1px solid var(--border)', paddingTop: 7 }}>
             {ci.zones?.length ? <span>Drops: {ci.zones.join(', ')}</span> : null}
             {ci.vendors?.length ? <span>Sold in: {ci.vendors.join(', ')}</span> : null}
+          </span>
+        ) : null}
+        {why.length ? (
+          <span style={{ display: 'flex', flexDirection: 'column', gap: 2, borderTop: '1px solid var(--border)', paddingTop: 7 }}>
+            {why.map((tl, i) => (
+              <span key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontWeight: tl.bold ? 600 : 400 }}>
+                <span style={{ color: 'var(--muted)' }}>{tl.label}</span>
+                <span style={{ fontFamily: MONO, color: 'var(--accent)' }}>{tl.val}</span>
+              </span>
+            ))}
           </span>
         ) : null}
       </span>
@@ -499,7 +491,10 @@ export default class App extends Component<{}, State> {
       // Paired slots hold two items (top 2, vs 1st/2nd-best equipped); Any Slot
       // rows show the top 3 goal-ranked picks.
       const nWant = slot === 'Any Slot' ? 3 : (slot === 'Ear' || slot === 'Wrist' || slot === 'Fingers') ? 2 : 1
-      const eqScores = eqEntries.map(e => { const ci = known(e); return ci ? score(ci, e.tier, wRow, slot) : 0 }).sort((a, b) => b - a)
+      // Equipped items ranked best-first, keeping the item so the "why better"
+      // diff can name what a candidate displaces.
+      const eqRanked = eqEntries.flatMap(e => { const ci = known(e); return ci ? [{ ci, tier: e.tier, sc: score(ci, e.tier, wRow, slot) }] : [] }).sort((a, b) => b.sc - a.sc)
+      const eqScores = eqRanked.map(x => x.sc)
       const eqRks = eqEntries.map(e => { const ci = known(e); return ci ? rankScore(ci, e.tier, wRow, slot, trio) : 0 }).sort((a, b) => b - a)
       // Effective ratio on the familiar dmg/dly scale, but damage-bonus aware
       // — (2×dmg + bonus)/(2×dly) — so the "ratio +X" label agrees with the
@@ -517,9 +512,13 @@ export default class App extends Component<{}, State> {
         const upgrade = x.rk - (eqRks[i] || 0) > 0.05
         const ratioGain = r2(effRatio(x.ci, 0) - bestEqRatio)
         const owned = pool.some(e => e.base.toLowerCase() === x.ci.name.toLowerCase())
+        const vs = eqRanked[i]
+        const disp = this.dispItem(x.ci, 0, wRow, [srcLabel(x.ci), ...(x.ci.level ? ['lvl ' + x.ci.level + '+'] : [])], slot)
+        const why = vs && vs.ci.name !== x.ci.name ? this.whyLines(x.ci, 0, vs.ci, vs.tier, wRow, slot) : []
         return {
-          name: x.ci.name, ci: x.ci,
-          ...this.dispItem(x.ci, 0, wRow, [srcLabel(x.ci), ...(x.ci.level ? ['lvl ' + x.ci.level + '+'] : [])], slot),
+          name: x.ci.name, ci: x.ci, why,
+          ...disp,
+          tip: [...disp.tip, ...why],
           deltaText: owned ? 'owned' : (eqEntries.length ? (!upgrade ? '✓ best' : delta > 0.05 ? '+' + fmt(delta) : ratioGain > 0 ? 'ratio +' + ratioGain : '↑ rank') : fmt(x.sc)),
           deltaColor: upgrade && !owned ? 'var(--good)' : 'var(--muted)',
           delta, upgrade, owned,
@@ -527,11 +526,15 @@ export default class App extends Component<{}, State> {
       })
       // e.g. Equipped source unchecked: the best of the checked sources can
       // score under what's worn — say so instead of looking like an upgrade
-      const ownedList = (ownedPicks.get(slot) || []).map((p, i) => ({
-        ...p,
-        isEq: eqNames.includes(p.e.base.toLowerCase()),
-        belowEq: !eqNames.includes(p.e.base.toLowerCase()) && eqEntries.length > 0 && p.sc < (eqScores[i] || 0),
-      }))
+      const ownedList = (ownedPicks.get(slot) || []).map((p, i) => {
+        const isEq = eqNames.includes(p.e.base.toLowerCase())
+        const vs = eqRanked[i]
+        return {
+          ...p, isEq,
+          belowEq: !isEq && eqEntries.length > 0 && p.sc < (eqScores[i] || 0),
+          why: !isEq && vs && vs.ci.name !== p.ci.name ? this.whyLines(p.ci, p.e.tier, vs.ci, vs.tier, wRow, slot) : [],
+        }
+      })
       return {
         slot, eq,
         eqEmptyText: st.inv ? '— empty —' : 'upload inventory',
@@ -933,14 +936,14 @@ export default class App extends Component<{}, State> {
                           <div key={i}>{this.unit(
                             this.dispItem(p.ci, p.e.tier, w, [p.isEq ? 'equipped' : p.e.source, ...(p.belowEq ? ['below equipped'] : [])], r.slot),
                             <>{p.e.base}{this.tierSpan(p.e.tier)}</>,
-                            this.badge(fmt(score(p.ci, p.e.tier, w, r.slot)), this.tipFor(p.ci, p.e.tier, w, r.slot)),
-                            this.infoTip(p.ci, p.e.tier))}</div>
+                            this.badge(fmt(score(p.ci, p.e.tier, w, r.slot)), [...this.tipFor(p.ci, p.e.tier, w, r.slot), ...p.why]),
+                            this.infoTip(p.ci, p.e.tier, p.why))}</div>
                         ))}
                         {r.ownedList.length === 0 && <div style={{ fontSize: 12, color: 'var(--muted)', paddingTop: 4 }}>{r.noOwnedText}</div>}
                       </div>
                       <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
                         {r.availList.map((a, i) => (
-                          <div key={i}>{this.unit(a, a.name, this.badge(a.deltaText, a.tip, { fontSize: 11.5, fontWeight: 600, color: a.deltaColor }), this.infoTip(a.ci))}</div>
+                          <div key={i}>{this.unit(a, a.name, this.badge(a.deltaText, a.tip, { fontSize: 11.5, fontWeight: 600, color: a.deltaColor }), this.infoTip(a.ci, 0, a.why))}</div>
                         ))}
                         {r.availList.length === 0 && <div style={{ fontSize: 12, color: 'var(--muted)', paddingTop: 4 }}>no catalog data</div>}
                       </div>
@@ -955,7 +958,7 @@ export default class App extends Component<{}, State> {
                 {upgrades.map((u, i) => (
                   <div key={i} style={{ display: 'grid', gridTemplateColumns: '96px 1fr auto', gap: 14, padding: '13px 18px', borderBottom: '1px solid var(--border)', alignItems: 'center' }}>
                     <div style={{ fontFamily: CINZEL, fontSize: 13, fontWeight: 600 }}>{u.slot}</div>
-                    {this.unit(u.item, u.item.name, null, this.infoTip(u.item.ci))}
+                    {this.unit(u.item, u.item.name, null, this.infoTip(u.item.ci, 0, u.item.why))}
                     {this.badge('+' + fmt(u.item.delta), u.item.tip, { fontSize: 13, fontWeight: 600, padding: '3px 9px', color: 'var(--good)' })}
                   </div>
                 ))}
