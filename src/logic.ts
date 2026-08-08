@@ -283,23 +283,27 @@ export function whyDiff(a: Item, at: number, b: Item, bt: number, w: Weights, sl
 // must not beat a better-ratio blade). Done as a large additive boost so every
 // existing numeric score sort keeps working; the boost stays out of displayed
 // scores. Pure caster/priest trios keep plain score rank — stat sticks win.
-// ponytail: Primary only; Secondary stays score-ranked (shield vs dual wield
-// is a build choice, not a ranking bug). Extend if players ask.
+// Secondary gets the same treatment when the trio can dual wield (offhand
+// ratio uses no damage bonus — mainhand only in-game); shield-only trios keep
+// score rank so shields aren't buried under every weapon.
 export const hasMeleeTrio = (trio: string[]) =>
   trio.some(c => ['Melee', 'Hybrids'].includes(CLASSES.find(x => x.code === c)?.group || ''))
+export const canDualWield = (trio: string[]) =>
+  trio.some(c => ['WAR', 'MNK', 'ROG', 'RNG', 'BRD', 'BST'].includes(c))
 export const rankScore = (ci: Item, tier: number, w: Weights, slot: string, trio: string[]) => {
   let s = score(ci, tier, w, slot)
-  if (slot === 'Primary' && ci.dmg > 0 && ci.dly > 0 && !rangedSkill(ci.skill) && hasMeleeTrio(trio)) {
+  const wpnSlot = slot === 'Primary' || (slot === 'Secondary' && canDualWield(trio))
+  if (wpnSlot && ci.dmg > 0 && ci.dly > 0 && !rangedSkill(ci.skill) && hasMeleeTrio(trio)) {
     const d = tierDmg(ci.dmg, tier)
-    s += ((2 * d + dmgBonus(ci.skill, ci.dly)) / ci.dly) * 1000
+    s += ((2 * d + (slot === 'Primary' ? dmgBonus(ci.skill, ci.dly) : 0)) / ci.dly) * 1000
     // Backstab hits for ~25× piercer damage (max, at 50) every ~10s, so a
     // rogue's primary damage counts again ≈ 1.25 DPS per point. The custom
     // "Backstab DMG" item stat replaces weapon damage in the backstab calc
     // (catalog shows it ≈ dmg, e.g. Rib-bone Stiletto 4dmg/7bs). Same ×100
     // scale as the white-damage boost so the two trade off proportionally.
     // Only piercers the rogue can actually equip backstab (a WAR-only lance
-    // in a ROG/WAR trio must not get the boost).
-    if (trio.includes('ROG') && ci.skill === 'Piercing' && (!ci.classes.length || ci.classes.includes('ROG')))
+    // in a ROG/WAR trio must not get the boost). Backstab swings from Primary.
+    if (slot === 'Primary' && trio.includes('ROG') && ci.skill === 'Piercing' && (!ci.classes.length || ci.classes.includes('ROG')))
       s += (ci.backstab ? tierDmg(ci.backstab, tier) : d) * 125
   }
   return s

@@ -102,7 +102,10 @@ assert.ok(score(stick, 0, flat) > score(blade, 0, flat))
 assert.ok(rankScore(blade, 0, flat, 'Primary', ['ROG', 'SHM', 'ENC']) > rankScore(stick, 0, flat, 'Primary', ['ROG', 'SHM', 'ENC']))
 // ...but a pure caster/priest trio keeps score order, and other slots always do
 assert.ok(rankScore(stick, 0, flat, 'Primary', ['CLR', 'WIZ', 'ENC']) > rankScore(blade, 0, flat, 'Primary', ['CLR', 'WIZ', 'ENC']))
-assert.ok(rankScore(stick, 0, flat, 'Secondary', ['ROG', 'SHM', 'ENC']) > rankScore(blade, 0, flat, 'Secondary', ['ROG', 'SHM', 'ENC']))
+// Secondary is ratio-first too when the trio can dual wield (the offhand swings);
+// a trio with no dual-wielder keeps score order — its offhand weapon never swings.
+assert.ok(rankScore(blade, 0, flat, 'Secondary', ['ROG', 'SHM', 'ENC']) > rankScore(stick, 0, flat, 'Secondary', ['ROG', 'SHM', 'ENC']))
+assert.ok(rankScore(stick, 0, flat, 'Secondary', ['SHD', 'SHM', 'ENC']) > rankScore(blade, 0, flat, 'Secondary', ['SHD', 'SHM', 'ENC']))
 assert.ok(hasMeleeTrio(['BRD']) && !hasMeleeTrio(['CLR', 'WIZ']))
 // Rogue trios rank Primary piercers with a backstab term (+125/dmg): a 12/26
 // piercer must outrank a 14/28 slasher (which wins on white damage alone) for
