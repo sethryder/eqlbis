@@ -7,6 +7,14 @@ import type { InvEntry, InvSource, Item, Weights } from './logic'
 
 // Build config (prototype tweak-props)
 const MAX_BROWSE = 40
+const ALL_SLOTS = 'All Slots'
+const RESIST_KEYS = ['FIRE', 'COLD', 'MAGIC', 'DISEASE', 'POISON']
+// Browse sort options: [key, label, short row label]. 'rank' = trio score (default).
+const BROWSE_SORTS: [string, string, string][] = [
+  ['rank', 'Score', ''], ['AC', 'AC', 'AC'], ['HP', 'HP', 'HP'], ['MANA', 'Mana', 'Mana'],
+  ...RESIST_KEYS.map(k => [k, k[0] + k.slice(1).toLowerCase() + ' Resist', k[0] + 'R'] as [string, string, string]),
+  ...STAT_KEYS.map(k => [k, k, k] as [string, string, string]),
+]
 const MIN_UPGRADE_DELTA = 0.1
 
 const MONO = "'IBM Plex Mono', monospace"
@@ -86,6 +94,7 @@ type State = {
   catalog: Item[]; catalogLoaded: boolean
   inv: InvEntry[] | null; invName: string; sources: Record<InvSource, boolean>
   weightOv: Weights; weightsOpen: boolean; browseSlot: string; charLevel: number; effView: 'owned' | 'all'
+  browseSearch: string; browseSort: string; browseOwned: boolean
   compare: { name: string; tier: number; slot: string }[]
   wpnOff: string[]; obtOff: string[]; preset: string; goal: string; copied: boolean; wnonce: number
   iconIds: Set<number> | null
@@ -97,6 +106,7 @@ export default class App extends Component<{}, State> {
     mode: 'dark', trio: [], tab: 'slots', petSel: '', catalog: [], catalogLoaded: false,
     inv: null, invName: '', sources: { equipped: true, bags: true, bank: true, stash: true, hoard: true, depot: true },
     weightOv: {}, weightsOpen: false, browseSlot: 'Primary', charLevel: 50, effView: 'owned', compare: [],
+    browseSearch: '', browseSort: 'rank', browseOwned: false,
     wpnOff: [], obtOff: DEFAULT_OBT_OFF, preset: 'balanced', goal: 'weights', copied: false, wnonce: 0,
     iconIds: null, spellDesc: {},
   }
@@ -430,6 +440,7 @@ export default class App extends Component<{}, State> {
     const inv = st.inv || []
     const known = (e: InvEntry) => idx.get(e.base.toLowerCase())
     const pool = inv.filter(e => st.sources[e.source])
+    const ownedSet = new Set(pool.map(e => e.base.toLowerCase()))
 
     const slotFits = (ci: Item, slot: string) => slot === 'Any Slot' ? (ci.slots && ci.slots.length > 0) : (ci.slots || []).includes(slot)
     const lvlOk = (ci: Item) => !ci.level || ci.level <= st.charLevel
@@ -511,7 +522,7 @@ export default class App extends Component<{}, State> {
         // weapon wins on ratio but not raw score, say so instead of "+0.0".
         const upgrade = x.rk - (eqRks[i] || 0) > 0.05
         const ratioGain = r2(effRatio(x.ci, 0) - bestEqRatio)
-        const owned = pool.some(e => e.base.toLowerCase() === x.ci.name.toLowerCase())
+        const owned = ownedSet.has(x.ci.name.toLowerCase())
         const vs = eqRanked[i]
         const disp = this.dispItem(x.ci, 0, wRow, [srcLabel(x.ci), ...(x.ci.level ? ['lvl ' + x.ci.level + '+'] : [])], slot)
         const why = vs && vs.ci.name !== x.ci.name ? this.whyLines(x.ci, 0, vs.ci, vs.tier, wRow, slot) : []
@@ -548,15 +559,36 @@ export default class App extends Component<{}, State> {
       .flatMap(r => r.availList.filter(a => !a.owned && a.upgrade && (a.delta > MIN_UPGRADE_DELTA || r.slot === 'Primary')).map(a => ({ slot: r.slot, item: a })))
       .sort((a, b) => b.item.delta - a.item.delta)
 
-    const browseSlots = SLOT_TYPES.filter(s => s !== 'Any Slot')
+    const browseSlots = [ALL_SLOTS, ...SLOT_TYPES.filter(s => s !== 'Any Slot')]
+    // All Slots scores each item in the slot where it actually works: Primary
+    // for anything with melee dmg (throwables list Range first, where their
+    // dmg/dly is dead), else its first slot.
+    const bSlot = (ci: Item) => st.browseSlot !== ALL_SLOTS ? st.browseSlot
+      : ci.dmg && ci.slots.includes('Primary') ? 'Primary' : ci.slots[0]
+    const bFits = (ci: Item) => slotFits(ci, st.browseSlot === ALL_SLOTS ? 'Any Slot' : st.browseSlot)
+    const bSort = BROWSE_SORTS.find(s => s[0] === st.browseSort) || BROWSE_SORTS[0]
+    const sortVal = (ci: Item): number =>
+      bSort[0] === 'AC' ? ci.ac : bSort[0] === 'HP' ? ci.hp : bSort[0] === 'MANA' ? ci.mana
+        : RESIST_KEYS.includes(bSort[0]) ? (ci.resists?.[bSort[0]] || 0)
+        : (ci.stats[bSort[0]] || 0)
+    // rankScore's Primary ratio boost isn't comparable across slots, so All
+    // Slots ranks by raw score instead — otherwise every row is a weapon.
+    const bRank = (ci: Item) => st.browseSlot === ALL_SLOTS ? score(ci, 0, w, bSlot(ci)) : rankScore(ci, 0, w, bSlot(ci), trio)
+    const q = st.browseSearch.trim().toLowerCase()
     const browseRows = st.catalog
-      .filter(ci => slotFits(ci, st.browseSlot) && this.usable(ci) && lvlOk(ci) && wpnOk(ci) && obtOk(ci))
-      .map(ci => ({ ci, sc: score(ci, 0, w, st.browseSlot), rk: rankScore(ci, 0, w, st.browseSlot, trio) }))
-      .sort((a, b) => b.rk - a.rk).slice(0, MAX_BROWSE)
+      .filter(ci => bFits(ci) && this.usable(ci) && lvlOk(ci) && wpnOk(ci) && obtOk(ci))
+      .filter(ci => !q || ci.name.toLowerCase().includes(q))
+      .filter(ci => !st.browseOwned || ownedSet.has(ci.name.toLowerCase()))
+      // hide zero-stat rows on a stat sort, but never drop an explicit name match
+      .filter(ci => bSort[0] === 'rank' || !!q || sortVal(ci) > 0)
+      .map(ci => ({ ci, sv: sortVal(ci), rk: bRank(ci) }))
+      .sort((a, b) => bSort[0] === 'rank' ? b.rk - a.rk : b.sv - a.sv || b.rk - a.rk)
+      .slice(0, MAX_BROWSE)
       .map((x, i) => ({
-        rank: i + 1, name: x.ci.name, ci: x.ci,
-        ...this.dispItem(x.ci, 0, w, [x.ci.zones.length ? x.ci.zones.join(', ') : (x.ci.flags.includes('VENDOR') || x.ci.flags.includes('CRAFTED') ? '' : 'unknown source'), ...(x.ci.level ? ['lvl ' + x.ci.level + '+'] : []), ...x.ci.flags.map(f => f.toLowerCase())].filter(Boolean), st.browseSlot),
-        ownedTag: pool.some(e => e.base.toLowerCase() === x.ci.name.toLowerCase()) ? 'owned' : '',
+        rank: i + 1, name: x.ci.name, ci: x.ci, slot: bSlot(x.ci),
+        sortText: bSort[0] === 'rank' ? '' : bSort[2] + ' ' + x.sv,
+        ...this.dispItem(x.ci, 0, w, [x.ci.zones.length ? x.ci.zones.join(', ') : (x.ci.flags.includes('VENDOR') || x.ci.flags.includes('CRAFTED') ? '' : 'unknown source'), ...(x.ci.level ? ['lvl ' + x.ci.level + '+'] : []), ...x.ci.flags.map(f => f.toLowerCase())].filter(Boolean), bSlot(x.ci)),
+        ownedTag: ownedSet.has(x.ci.name.toLowerCase()) ? 'owned' : '',
       }))
 
     // ---- effects on owned gear: Focus / Clicky / Worn / Proc, kind parsed
@@ -695,7 +727,7 @@ export default class App extends Component<{}, State> {
             style={{ padding: '9px 14px', borderRadius: 'var(--radius)', border: '1px solid var(--accent)', background: 'var(--accent)', color: 'var(--accentText)', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
             {st.copied ? 'Copied!' : 'Share'}
           </button>
-          <button className="eq-del" onClick={() => { this.invText = null; this.set({ trio: [], inv: null, invName: '', weightOv: {}, wpnOff: [], obtOff: DEFAULT_OBT_OFF, charLevel: 50, preset: 'balanced', goal: 'weights', tab: 'slots', wnonce: st.wnonce + 1 }) }}
+          <button className="eq-del" onClick={() => { this.invText = null; this.set({ trio: [], inv: null, invName: '', browseOwned: false, weightOv: {}, wpnOff: [], obtOff: DEFAULT_OBT_OFF, charLevel: 50, preset: 'balanced', goal: 'weights', tab: 'slots', wnonce: st.wnonce + 1 }) }}
             style={{ padding: '9px 14px', borderRadius: 'var(--radius)', border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)', cursor: 'pointer', fontSize: 13 }}>
             Reset
           </button>
@@ -978,13 +1010,24 @@ export default class App extends Component<{}, State> {
 
             {tab === 'browse' && (
               <>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 18px', borderBottom: '1px solid var(--border)', flex: 'none' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 18px', borderBottom: '1px solid var(--border)', flex: 'none', flexWrap: 'wrap' }}>
                   <label style={{ fontSize: 12, color: 'var(--muted)' }}>Slot</label>
                   <select value={st.browseSlot} onChange={ev => this.setState({ browseSlot: ev.target.value })}
                     style={{ padding: '8px 10px', border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }}>
                     {browseSlots.map(bs => <option key={bs} value={bs}>{bs}</option>)}
                   </select>
-                  <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>ranked for your trio · highest score first · + to compare</div>
+                  <label style={{ fontSize: 12, color: 'var(--muted)' }}>Sort</label>
+                  <select value={st.browseSort} onChange={ev => this.setState({ browseSort: ev.target.value })}
+                    style={{ padding: '8px 10px', border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }}>
+                    {BROWSE_SORTS.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+                  </select>
+                  <input value={st.browseSearch} onChange={ev => this.setState({ browseSearch: ev.target.value })} placeholder="Search name…"
+                    style={{ padding: '8px 10px', border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13, width: 170 }} />
+                  <label style={{ fontSize: 12, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={st.browseOwned} onChange={ev => this.setState({ browseOwned: ev.target.checked })} disabled={!st.inv} />
+                    owned only
+                  </label>
+                  <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{st.browseSort === 'rank' ? 'ranked for your trio · highest score first' : 'sorted by ' + bSort[1].toLowerCase()} · + to compare</div>
                 </div>
                 {st.compare.length > 0 && (
                   <div style={{ padding: '10px 18px', borderBottom: '1px solid var(--border)', flex: 'none', display: 'flex', flexDirection: 'column', gap: 8, background: 'var(--panel2)' }}>
@@ -1016,13 +1059,14 @@ export default class App extends Component<{}, State> {
                   {browseRows.map(b => {
                     const inC = st.compare.some(x => x.name === b.name)
                     return (
-                      <div key={b.name} style={{ display: 'grid', gridTemplateColumns: '34px 1fr auto auto auto', gap: 12, padding: '11px 18px', borderBottom: '1px solid var(--border)', alignItems: 'center' }}>
+                      <div key={b.name} style={{ display: 'grid', gridTemplateColumns: b.sortText ? '34px 1fr auto auto auto auto' : '34px 1fr auto auto auto', gap: 12, padding: '11px 18px', borderBottom: '1px solid var(--border)', alignItems: 'center' }}>
                         <div style={monoMeta}>{b.rank}</div>
                         {this.unit(b, b.name, null, this.infoTip(b.ci))}
                         <div style={{ fontFamily: MONO, fontSize: 10.5, color: 'var(--accent)' }}>{b.ownedTag}</div>
+                        {b.sortText && <div style={{ fontFamily: MONO, fontSize: 11.5, fontWeight: 600 }}>{b.sortText}</div>}
                         {this.badge(b.scoreText, b.tip, { fontSize: 12.5, fontWeight: 600 })}
                         <button style={stepBtn} title={inC ? 'Remove from compare' : 'Add to compare'}
-                          onClick={() => this.setState({ compare: inC ? st.compare.filter(x => x.name !== b.name) : [...st.compare, { name: b.name, tier: 0, slot: st.browseSlot }] })}>
+                          onClick={() => this.setState({ compare: inC ? st.compare.filter(x => x.name !== b.name) : [...st.compare, { name: b.name, tier: 0, slot: b.slot }] })}>
                           {inC ? '✕' : '+'}
                         </button>
                       </div>
@@ -1057,7 +1101,7 @@ export default class App extends Component<{}, State> {
                                 { txt: r.text, color: 'var(--accent)' },
                                 { txt: srcLabel(r.ci), color: 'var(--muted)' },
                                 ...(r.ci.level ? [{ txt: 'lvl ' + r.ci.level + '+', color: 'var(--muted)' }] : []),
-                                ...(pool.some(e => e.base.toLowerCase() === r.ci.name.toLowerCase()) ? [{ txt: 'owned', color: 'var(--good)' }] : []),
+                                ...(ownedSet.has(r.ci.name.toLowerCase()) ? [{ txt: 'owned', color: 'var(--good)' }] : []),
                               ] },
                               r.ci.name, null, this.infoTip(r.ci)))}
                           </div>
@@ -1090,7 +1134,7 @@ export default class App extends Component<{}, State> {
                               {better && (
                                 <div style={{ fontSize: 11.5, color: 'var(--good)', marginTop: 2 }}>
                                   ↑ {better.ci.focus} — {better.ci.name}
-                                  {pool.some(e => e.base.toLowerCase() === better.ci.name.toLowerCase()) ? ' (owned)'
+                                  {ownedSet.has(better.ci.name.toLowerCase()) ? ' (owned)'
                                     : ' · ' + srcLabel(better.ci)}
                                 </div>
                               )}
@@ -1151,7 +1195,7 @@ export default class App extends Component<{}, State> {
                             : <div style={{ fontSize: 12, color: 'var(--muted)', paddingTop: 4 }}>{st.inv ? '— empty box —' : 'upload inventory'}</div>}
                         </div>
                         <div style={{ minWidth: 0 }}>
-                          {a ? petUnit(a, [srcLabel(a.ci), ...(a.ci.level ? ['lvl ' + a.ci.level + '+'] : []), ...(pool.some(e => e.base.toLowerCase() === a.ci.name.toLowerCase()) ? ['owned'] : [])].join(' · '))
+                          {a ? petUnit(a, [srcLabel(a.ci), ...(a.ci.level ? ['lvl ' + a.ci.level + '+'] : []), ...(ownedSet.has(a.ci.name.toLowerCase()) ? ['owned'] : [])].join(' · '))
                             : <div style={{ fontSize: 12, color: 'var(--muted)', paddingTop: 4 }}>no catalog data</div>}
                         </div>
                       </div>
