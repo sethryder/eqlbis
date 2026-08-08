@@ -96,6 +96,23 @@ async function wikitext(title) {
   return data?.query?.pages?.[0]?.revisions?.[0]?.slots?.main?.content ?? "";
 }
 
+// Era banners like {{Velious Era}} all delegate to Template:PageEra, whose
+// switch (key = in|out) is the wiki's single source of truth for what's
+// unlocked on the server. Build the set of out-of-era banner names from it,
+// lowercased — so when Kunark unlocks, a wiki edit fixes the scrape too.
+async function outOfEraTemplates() {
+  const sw = await wikitext("Template:PageEra");
+  const inEra = new Set([...sw.matchAll(/\|\s*(\w+)\s*=\s*in\b/g)].map((m) => m[1].toLowerCase()));
+  const out = new Set();
+  for (const t of await categoryMembers("Era Templates")) {
+    if (!t.startsWith("Template:")) continue;
+    const key = (await wikitext(t)).match(/\{\{\s*PageEra\s*\|([^|}]+)/)?.[1].trim().toLowerCase();
+    if (key && !inEra.has(key)) out.add(t.slice("Template:".length).toLowerCase());
+    await sleep(120);
+  }
+  return out;
+}
+
 // Min level of a mob from its {{Namedmobpage}}: "18" or a range "3-10" (take
 // the low end). 0 when the page is missing or has no level.
 async function mobLevel(title) {
@@ -299,6 +316,8 @@ async function main() {
     ? { zoneSet: new Set(), zoneLevels: new Map() }
     : await buildZones();
 
+  const outEra = await outOfEraTemplates();
+  process.stderr.write(`Out-of-era banners: ${[...outEra].join(", ")}\n`);
   process.stderr.write("Enumerating Category:Items...\n");
   // Item pages whose wiki link tables are broken (no category/transclusion
   // records, so no enumeration can find them — a wiki null-edit fixes them
@@ -313,8 +332,10 @@ async function main() {
     try {
       const text = await wikitext(title);
       // "{{:Does Not Exist}}" banner = wiki-documented but not actually in
-      // the game (non-Legends content) — never list it.
-      if (!/\{\{\s*:?\s*Does Not Exist\s*\}\}/i.test(text)) {
+      // the game (non-Legends content) — never list it. Same for pages whose
+      // "{{<X> Era}}" banner the wiki marks out-of-era (see outOfEraTemplates).
+      const banner = text.match(/\{\{\s*([^{}|:]*?\bEra)\s*\}\}/i)?.[1].trim().toLowerCase();
+      if (!(banner && outEra.has(banner)) && !/\{\{\s*:?\s*Does Not Exist\s*\}\}/i.test(text)) {
         const item = parseItem(title, text, zoneSet, zoneLevels);
         // Only equippable gear matters for BiS — skip stat-less non-equip pages.
         if (item.slots.length || item.dmg) out.push(item);
@@ -357,7 +378,7 @@ async function main() {
   console.log(JSON.stringify(out));
 }
 
-export { parseItem, parseStats, wikitext, categoryMembers, buildZones, mobLevel };
+export { parseItem, parseStats, wikitext, categoryMembers, buildZones, mobLevel, outOfEraTemplates };
 if (import.meta.url === `file://${process.argv[1]}`) {
   main().catch((e) => { console.error(e); process.exit(1); });
 }
