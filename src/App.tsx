@@ -1,7 +1,7 @@
 import { Component, CSSProperties, ReactNode } from 'react'
 import {
-  CLASSES, KEYS, GOALS, PRESETS, SLOT_TYPES, STAT_KEYS, W, WPN_TYPES,
-  b64decode, b64encode, blendWeights, dmgBonus, fmt, hasteTerm, parseInv, parts, r2, rankScore, score, softcapRet, tierDmg, tierStat, whyDiff,
+  CLASSES, KEYS, GOALS, PRESETS, SLOT_CAP, SLOT_TYPES, STAT_KEYS, W, WPN_TYPES,
+  b64decode, b64encode, blendWeights, dmgBonus, fmt, hasteTerm, parseInv, parts, r2, rankScore, score, sellables, softcapRet, tierDmg, tierStat, whyDiff,
 } from './logic'
 import type { InvEntry, InvSource, Item, Weights } from './logic'
 
@@ -36,8 +36,6 @@ const CINZEL = "Cinzel, serif"
 const OBTAIN: [string, string][] = [['drop', 'Dropped'], ['vendor', 'Vendor sold'], ['crafted', 'Crafted'], ['quest', 'Quest'], ['unknown', 'Unknown source']]
 const DEFAULT_OBT_OFF = ['unknown']
 
-// How many of each slot a character wears (2 Any Slot per the inventory export)
-const SLOT_CAP: Record<string, number> = { Ear: 2, Wrist: 2, Fingers: 2, 'Any Slot': 2 }
 const obtainChannels = (ci: Item) => {
   const c = [
     ...(ci.zones.length ? ['drop'] : []),
@@ -103,7 +101,7 @@ type State = {
   catalog: Item[]; catalogLoaded: boolean
   inv: InvEntry[] | null; invName: string; sources: Record<InvSource, boolean>
   weightOv: Weights; weightsOpen: boolean; acCap: boolean; noRanged: boolean; shieldSec: boolean; browseSlot: string; charLevel: number; effView: 'owned' | 'all'
-  browseSearch: string; browseSort: string; browseOwned: boolean
+  browseSearch: string; browseSort: string; browseOwned: boolean; browseSell: boolean
   compare: { name: string; tier: number; slot: string }[]
   wpnOff: string[]; obtOff: string[]; preset: string; goal: string; copied: boolean; wnonce: number
   iconIds: Set<number> | null
@@ -115,7 +113,7 @@ export default class App extends Component<{}, State> {
     mode: 'dark', trio: [], tab: 'slots', petSel: '', catalog: [], catalogLoaded: false,
     inv: null, invName: '', sources: { equipped: true, bags: true, bank: true, stash: true, hoard: true, depot: true },
     weightOv: {}, weightsOpen: false, acCap: false, noRanged: false, shieldSec: false, browseSlot: 'Primary', charLevel: 50, effView: 'owned', compare: [],
-    browseSearch: '', browseSort: 'rank', browseOwned: false,
+    browseSearch: '', browseSort: 'rank', browseOwned: false, browseSell: false,
     wpnOff: [], obtOff: DEFAULT_OBT_OFF, preset: 'balanced', goal: 'weights', copied: false, wnonce: 0,
     iconIds: null, spellDesc: {},
   }
@@ -600,20 +598,27 @@ export default class App extends Component<{}, State> {
     // Slots ranks by raw score instead — otherwise every row is a weapon.
     const bRank = (ci: Item) => st.browseSlot === ALL_SLOTS ? score(ci, 0, w, bSlot(ci)) : rankScore(ci, 0, w, bSlot(ci), trio)
     const q = st.browseSearch.trim().toLowerCase()
+    // Safe-to-sell view: owned items no class combo would ever wear.
+    // ponytail: recomputed per render while the box is checked (16 classes ×
+    // owned entries, a few ms) — memoize on pool if it ever drags.
+    const sellSet = st.browseSell && st.inv ? sellables(pool, known) : null
+    const sellLocs = (name: string) => [...new Set(pool.filter(e => e.base.toLowerCase() === name).map(e => e.loc + (e.tier ? ' +' + e.tier : '')))].join(', ')
     const browseRows = st.catalog
-      .filter(ci => bFits(ci) && this.usable(ci) && lvlOk(ci) && wpnOk(ci) && obtOk(ci))
+      // Sell view ignores the trio/level/weapon/obtain filters: junk your trio
+      // can't even use is exactly what's safe to sell.
+      .filter(ci => sellSet ? bFits(ci) && sellSet.has(ci.name.toLowerCase()) : bFits(ci) && this.usable(ci) && lvlOk(ci) && wpnOk(ci) && obtOk(ci))
       .filter(ci => !q || ci.name.toLowerCase().includes(q))
-      .filter(ci => !st.browseOwned || ownedSet.has(ci.name.toLowerCase()))
+      .filter(ci => sellSet || !st.browseOwned || ownedSet.has(ci.name.toLowerCase()))
       // hide zero-stat rows on a stat sort, but never drop an explicit name match
       .filter(ci => bSort[0] === 'rank' || !!q || sortVal(ci) > 0)
       .map(ci => ({ ci, sv: sortVal(ci), rk: bRank(ci) }))
       .sort((a, b) => bSort[0] === 'rank' ? b.rk - a.rk : b.sv - a.sv || b.rk - a.rk)
-      .slice(0, MAX_BROWSE)
+      .slice(0, sellSet ? 200 : MAX_BROWSE)
       .map((x, i) => ({
         rank: i + 1, name: x.ci.name, ci: x.ci, slot: bSlot(x.ci),
         sortText: bSort[0] === 'rank' ? '' : bSort[2] + ' ' + x.sv,
         ...this.dispItem(x.ci, 0, w, [x.ci.zones.length ? x.ci.zones.join(', ') : (x.ci.flags.includes('VENDOR') || x.ci.flags.includes('CRAFTED') ? '' : 'unknown source'), ...(x.ci.level ? ['lvl ' + x.ci.level + '+'] : []), ...x.ci.flags.map(f => f.toLowerCase())].filter(Boolean), bSlot(x.ci)),
-        ownedTag: ownedSet.has(x.ci.name.toLowerCase()) ? 'owned' : '',
+        ownedTag: sellSet ? sellLocs(x.ci.name.toLowerCase()) : ownedSet.has(x.ci.name.toLowerCase()) ? 'owned' : '',
       }))
 
     // ---- effects on owned gear: Focus / Clicky / Worn / Proc, kind parsed
@@ -754,7 +759,7 @@ export default class App extends Component<{}, State> {
             style={{ padding: '9px 14px', borderRadius: 'var(--radius)', border: '1px solid var(--accent)', background: 'var(--accent)', color: 'var(--accentText)', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
             {st.copied ? 'Copied!' : 'Share'}
           </button>
-          <button className="eq-del" onClick={() => { this.invText = null; this.set({ trio: [], inv: null, invName: '', browseOwned: false, weightOv: {}, acCap: false, noRanged: false, shieldSec: false, wpnOff: [], obtOff: DEFAULT_OBT_OFF, charLevel: 50, preset: 'balanced', goal: 'weights', tab: 'slots', wnonce: st.wnonce + 1 }) }}
+          <button className="eq-del" onClick={() => { this.invText = null; this.set({ trio: [], inv: null, invName: '', browseOwned: false, browseSell: false, weightOv: {}, acCap: false, noRanged: false, shieldSec: false, wpnOff: [], obtOff: DEFAULT_OBT_OFF, charLevel: 50, preset: 'balanced', goal: 'weights', tab: 'slots', wnonce: st.wnonce + 1 }) }}
             style={{ padding: '9px 14px', borderRadius: 'var(--radius)', border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)', cursor: 'pointer', fontSize: 13 }}>
             Reset
           </button>
@@ -1071,7 +1076,11 @@ export default class App extends Component<{}, State> {
                     <input type="checkbox" checked={st.browseOwned} onChange={ev => this.setState({ browseOwned: ev.target.checked })} disabled={!st.inv} />
                     owned only
                   </label>
-                  <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{st.browseSort === 'rank' ? 'ranked for your trio · highest score first' : 'sorted by ' + bSort[1].toLowerCase()} · + to compare</div>
+                  <label style={{ fontSize: 12, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={st.browseSell} onChange={ev => this.setState({ browseSell: ev.target.checked })} disabled={!st.inv} />
+                    safe to sell
+                  </label>
+                  <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{sellSet ? 'owned gear outclassed by your other items for every class (Balanced weights) · clickies & focus items never listed · pet gear not considered' : (st.browseSort === 'rank' ? 'ranked for your trio · highest score first' : 'sorted by ' + bSort[1].toLowerCase()) + ' · + to compare'}</div>
                 </div>
                 {st.compare.length > 0 && (
                   <div style={{ padding: '10px 18px', borderBottom: '1px solid var(--border)', flex: 'none', display: 'flex', flexDirection: 'column', gap: 8, background: 'var(--panel2)' }}>

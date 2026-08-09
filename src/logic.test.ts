@@ -1,8 +1,8 @@
 // Self-check for the parse + scoring core. Run: npm test (node 22.18+ strips types natively).
 import { readFileSync } from 'node:fs'
 import assert from 'node:assert/strict'
-import { blendWeights, dmgBonus, hasMeleeTrio, parseInv, parts, r2, rankScore, score, tierDmg, tierStat, whyDiff } from './logic.ts'
-import type { Item, Weights } from './logic.ts'
+import { blendWeights, dmgBonus, hasMeleeTrio, parseInv, parts, r2, rankScore, score, sellables, tierDmg, tierStat, whyDiff } from './logic.ts'
+import type { InvEntry, Item, Weights } from './logic.ts'
 
 const inv = parseInv(readFileSync(new URL('../public/Washclof_oggok-Inventory.txt', import.meta.url), 'utf8'))
 const by = (s: string) => inv.filter(e => e.source === s).length
@@ -222,5 +222,21 @@ const why = whyDiff(stick, 0, blade, 0, flat)
 assert.equal(why[0][0], 'WIS')  // stick's WIS 15 is the biggest mover
 assert.equal(r2(why[0][1]), 15)
 assert.ok(why.some(([k, v]) => k === 'DPS' && v < 0)) // blade wins on DPS
+
+// sellables: an item is safe only when NO class's best owned loadout uses it.
+// CLR belts fill Waist(1) + Any Slot(2), so the 4th-best is safe; the WAR-only
+// belt is WAR's sole option (kept); the clicky is outclassed but never safe.
+{
+  const mkBelt = (name: string, ac: number, classes: string[] = ['CLR'], extra: Partial<Item> = {}): Item =>
+    ({ name, type: 'Armor', slots: ['Waist'], classes, level: 0, ac, hp: 0, mana: 0, dmg: 0, dly: 0, stats: {}, skill: '', icon: 0, zones: [], flags: [], ...extra })
+  const belts = [
+    mkBelt('Belt A', 20), mkBelt('Belt B', 15), mkBelt('Belt C', 10), mkBelt('Belt D', 1),
+    mkBelt('War Girdle', 1, ['WAR']),
+    mkBelt('Click Belt', 1, ['CLR'], { effect: 'Minor Healing (Must Equip, Casting Time: Instant)' }),
+  ]
+  const byName = new Map(belts.map(ci => [ci.name.toLowerCase(), ci]))
+  const pool: InvEntry[] = belts.map(ci => ({ base: ci.name, tier: 0, loc: 'Bank 1', source: 'bank', count: 1 }))
+  assert.deepEqual([...sellables(pool, e => byName.get(e.base.toLowerCase()))].sort(), ['belt d'])
+}
 
 console.log('logic self-check OK —', inv.length, 'entries parsed')

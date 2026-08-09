@@ -374,6 +374,43 @@ export const rankScore = (ci: Item, tier: number, w: Weights, slot: string, trio
   return s
 }
 
+// How many of each slot a character wears (2 Any Slot per the inventory export)
+export const SLOT_CAP: Record<string, number> = { Ear: 2, Wrist: 2, Fingers: 2, 'Any Slot': 2 }
+
+// Safe-to-sell: owned items no class would ever wear. For each of the 16
+// classes, build its best owned loadout — greedy assignment by solo-class rank
+// (same shape as the Best Owned picks: highest rank claims a slot, one
+// physical item fills one slot) over every slot each item lists plus the two
+// Any Slot boxes. An item name never assigned for ANY class is safe.
+// Conservative outs: clicky and focus items are never safe (utility the score
+// can't grade), items missing catalog data are never safe, ties keep both,
+// and one kept copy keeps every copy of that name.
+// ponytail: Balanced weights at max level per class; pet-only value (a pet's
+// highest-AC piece) isn't modeled — the UI caption says so.
+export function sellables(pool: InvEntry[], known: (e: InvEntry) => Item | undefined): Set<string> {
+  const cands = pool.flatMap(e => { const ci = known(e); return ci && ci.slots.length ? [{ e, ci }] : [] })
+  const kept = new Set<string>()
+  for (const code of Object.keys(W)) {
+    const w = blendWeights([code], 'balanced', {})
+    const pairs = cands.filter(c => canEquip(c.ci, code))
+      .flatMap(c => [...c.ci.slots, 'Any Slot'].map(slot => ({ c, slot, rk: rankScore(c.ci, c.e.tier, w, slot, [code]) })))
+      .sort((a, b) => b.rk - a.rk)
+    const fill = new Map<string, number>(), used = new Set<InvEntry>()
+    for (const p of pairs) {
+      const n = fill.get(p.slot) || 0
+      if (n >= (SLOT_CAP[p.slot] || 1) || used.has(p.c.e)) continue
+      fill.set(p.slot, n + 1)
+      used.add(p.c.e)
+      kept.add(p.c.e.base.toLowerCase())
+    }
+  }
+  const clicky = (ci: Item) => !!ci.effect && !/\((Combat|Worn)/.test(ci.effect)
+  const safe = new Set<string>()
+  for (const { e, ci } of cands)
+    if (!kept.has(e.base.toLowerCase()) && !clicky(ci) && !ci.focus) safe.add(e.base.toLowerCase())
+  return safe
+}
+
 // UTF-8-safe base64 for the share link (no spread of big arrays).
 export function b64encode(s: string) {
   const b = new TextEncoder().encode(s)
