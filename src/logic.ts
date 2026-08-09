@@ -76,24 +76,34 @@ export const GOALS: { id: string; label: string; abs?: Weights }[] = [
 ]
 
 export const EQUIP_LOCS = ['Charm', 'Ear', 'Head', 'Face', 'Neck', 'Shoulders', 'Arms', 'Back', 'Wrist', 'Range', 'Hands', 'Primary', 'Secondary', 'Fingers', 'Chest', 'Legs', 'Feet', 'Waist', 'Ammo', 'Held', 'Any Slot', 'Power Source']
-export const WPN_TYPES = ['1H Slashing', '1H Blunt', 'Piercing', 'Hand to Hand', '2H Slashing', '2H Blunt', '2H Piercing', 'Archery', 'Shield']
+export const WPN_TYPES = ['1H Slashing', '1H Blunt', 'Piercing', 'Hand to Hand', '2H Slashing', '2H Blunt', '2H Piercing', 'Archery', 'Throwing', 'Shield']
 export const SLOT_TYPES = ['Primary', 'Secondary', 'Range', 'Head', 'Face', 'Ear', 'Neck', 'Shoulders', 'Back', 'Arms', 'Wrist', 'Hands', 'Fingers', 'Chest', 'Waist', 'Legs', 'Feet', 'Any Slot']
 
 export const STAT_KEYS = ['STR', 'STA', 'AGI', 'DEX', 'WIS', 'INT', 'CHA']
 
 // Main-hand damage bonus (flat, added to every mainhand swing, starts L28) —
 // folded into weapon scores as phantom damage. Calibrated at level 50 (EQL
-// classic cap): 1H = floor((50-25)/3) = 8; 2H = 9 under 28 delay, else 14.
-// Retune if the cap rises (at 60: 1H 11; 2H 12 / ~30 / ~38 / 49 by delay
-// bracket). Offhand gets no bonus in-game — the small fast-weapon bias this
-// adds to Secondary ranking is accepted; ratio still dominates there.
-export const dmgBonus = (skill: string, dly: number) =>
-  skill.startsWith('2H') ? (dly >= 28 ? 14 : 9) : 8
+// classic cap): 1H = floor((50-25)/3) = 8; 2H = 9 under 28 delay, 14 at 28+,
+// and slow 2H gains the delay brackets from EQEmu GetWeaponDamageBonus:
+// +floor((dly-40)/3)+1 at 40+ delay, +2 more at 45+ (so dly 40 → 15, 45 → 18).
+// Retune if the cap rises. Ranged attacks get no damage bonus in this era,
+// and neither does the offhand (Secondary's rank boost drops it; the small
+// fast-weapon bias left in Secondary's raw score is accepted).
 export const rangedSkill = (s: string) => s === 'Archery' || s.startsWith('Throwing')
+export const dmgBonus = (skill: string, dly: number) =>
+  rangedSkill(skill) ? 0
+    : !skill.startsWith('2H') ? 8
+    : dly < 28 ? 9
+    : 14 + (dly >= 40 ? Math.floor((dly - 40) / 3) + 1 + (dly >= 45 ? 2 : 0) : 0)
 // A never-shoot build (w.RANGED = 0) mutes bow/throwing white damage AND their
 // combat procs — both only happen when the weapon is actually fired. Melee
 // weapons and worn armor procs are untouched. Shared by score() and parts().
 export const rangedOn = (skill: string, w: Weights) => (rangedSkill(skill) ? w.RANGED ?? 1 : 1)
+// The offhand only swings when someone can dual wield: blendWeights sets
+// w.OFFHAND = 0 for trios with no dual-wielder (or when the shield-tank
+// toggle is on), muting Secondary weapon dmg/proc credit the same way
+// w.RANGED mutes bows. Shared by score() and parts().
+export const offhandOn = (slot: string | undefined, w: Weights) => (slot === 'Secondary' ? w.OFFHAND ?? 1 : 1)
 
 // Worn regen effects to per-tick values: Flowing Thought N = N mana/tick (any
 // tier), Fungal Regrowth (Fungi) = 15 HP/tick, worn Regeneration = 9 HP/tick
@@ -161,6 +171,14 @@ export function parseInv(text: string): InvEntry[] {
 // (no minimum observed); every tiered item also gains +1 SV Void per tier.
 export const tierStat = (v: number, tier: number) => (v > 0 ? v + Math.max(Math.floor(v * 0.10 * tier), tier) : v)
 export const tierDmg = (dmg: number, tier: number) => dmg + Math.floor(dmg * 0.10 * tier)
+// Resists score as one summed SV bucket, but the tier rule is per stat in-game
+// (min +1/tier applies to EACH resist): tier the individual resists when the
+// scrape has them, else the bucket (hand-made seed items).
+export const tierSV = (ci: Item, tier: number) => {
+  if (!tier) return ci.stats.SV || 0
+  const rs = ci.resists && Object.keys(ci.resists).length ? Object.values(ci.resists) : [ci.stats.SV || 0]
+  return rs.reduce((s, v) => s + (v > 0 ? tierStat(v, tier) : v), 0)
+}
 
 // Post-softcap AC returns per class — EQEmu GetSoftcapReturns() (zone/
 // attack.cpp), which took them from the live dev post. EQL runs the live
@@ -185,7 +203,10 @@ export const acRet = (ci: Item, w: Weights) => (ci.skill === 'Shield' ? 1 : w.AC
 // sets the exact effective AC value, so no ACRET rides along with it.
 // noRanged: the build never actually shoots — bows/throwing keep their stats
 // but get no DPS credit (w.RANGED = 0 zeroes the ranged term in score()).
-export function blendWeights(trio: string[], presetId: string, overrides: Weights, acCap = false, noRanged = false): Weights {
+// shieldSec: the offhand holds a shield (a build choice the trio can't
+// decide) — Secondary weapons rank as stat sticks. Trios with no dual-wield
+// class get that for free: their offhand never swings regardless.
+export function blendWeights(trio: string[], presetId: string, overrides: Weights, acCap = false, noRanged = false, shieldSec = false): Weights {
   const p = PRESETS.find(x => x.id === presetId) || PRESETS[0]
   const w: Weights = {}
   for (const k of KEYS) {
@@ -195,6 +216,7 @@ export function blendWeights(trio: string[], presetId: string, overrides: Weight
   }
   if (acCap && overrides.AC === undefined) w.ACRET = softcapRet(trio)
   if (noRanged) w.RANGED = 0
+  if (shieldSec || (trio.length > 0 && !canDualWield(trio))) w.OFFHAND = 0
   return w
 }
 
@@ -213,19 +235,20 @@ export function score(ci: Item, tier: number, w: Weights, slot?: string): number
     const v = ci.stats[k] || 0
     if (v) s += (v > 0 ? tierStat(v, tier) : v) * (w[k] || 0)
   }
-  if (ci.stats.SV) s += tierStat(ci.stats.SV, tier) * 0.3 * w.SV
+  if (ci.stats.SV) s += tierSV(ci, tier) * 0.3 * w.SV
   if (ci.dmg && ci.dly && wpnActive(slot, ci.skill)) {
     // Real mainhand DPS = (2×dmg + damage bonus)/delay (delay is in tenths),
     // so the score is white-DPS × w.DPS. Ranged counts half: bow/thrown damage
     // is halved in-game and pre-AA archery is utility-grade.
     const d = tierDmg(ci.dmg, tier)
-    s += ((2 * d + dmgBonus(ci.skill, ci.dly)) / ci.dly) * 10 * (rangedSkill(ci.skill) ? 0.5 : 1) * rangedOn(ci.skill, w) * w.DPS
+    s += ((2 * d + dmgBonus(ci.skill, ci.dly)) / ci.dly) * 10 * (rangedSkill(ci.skill) ? 0.5 : 1) * rangedOn(ci.skill, w) * offhandOn(slot, w) * w.DPS
   }
   // Combat procs fire ~1–2/min regardless of delay; a typical 50–100dd proc
   // ≈ 2 DPS. Flat tiebreaker credit — proc text is prose, not parseable.
   // Weapon procs need the weapon to swing in the viewed slot; worn procs on
   // armor fire off the wearer's own swings, so they count in any slot.
-  if (ci.effect && ci.effect.includes('(Combat') && (ci.dmg && ci.dly ? wpnActive(slot, ci.skill) : true)) s += 2 * rangedOn(ci.skill, w) * w.DPS
+  if (ci.effect && ci.effect.includes('(Combat') && (ci.dmg && ci.dly ? wpnActive(slot, ci.skill) : true))
+    s += 2 * rangedOn(ci.skill, w) * (ci.dmg && ci.dly ? offhandOn(slot, w) : 1) * w.DPS
   // 1% worn haste = 2.5 × DPS-weight points. Grounded in community parse math
   // (1% haste ≈ 1% auto-attack DPS ≈ 10 STR/ATK): sized so FBSS beats any pure
   // stat belt for melee and 41% belts rank near-BiS, matching P99/TAKP lists.
@@ -269,9 +292,9 @@ export function parts(ci: Item, tier: number, w: Weights, slot?: string): Part[]
   const P: Part[] = []
   const add = (key: string, label: string, val: number) => { if (val) P.push({ key, label, val }) }
   if (ci.dmg && ci.dly && wpnActive(slot, ci.skill)) {
-    const d = tierDmg(ci.dmg, tier), b = dmgBonus(ci.skill, ci.dly), ro = rangedOn(ci.skill, w)
-    add('DPS', '(2×' + d + 'dmg + ' + b + ' bonus)/' + ci.dly + 'dly × 10' + (rangedSkill(ci.skill) ? ' × 0.5 ranged' : '') + (ro !== 1 ? ' × ' + r2(ro) + ' never-shoot' : '') + ' × ' + r2(w.DPS) + ' dps',
-      ((2 * d + b) / ci.dly) * 10 * (rangedSkill(ci.skill) ? 0.5 : 1) * ro * w.DPS)
+    const d = tierDmg(ci.dmg, tier), b = dmgBonus(ci.skill, ci.dly), ro = rangedOn(ci.skill, w), oh = offhandOn(slot, w)
+    add('DPS', '(2×' + d + 'dmg' + (b ? ' + ' + b + ' bonus' : '') + ')/' + ci.dly + 'dly × 10' + (rangedSkill(ci.skill) ? ' × 0.5 ranged' : '') + (ro !== 1 ? ' × ' + r2(ro) + ' never-shoot' : '') + (oh !== 1 ? ' × ' + r2(oh) + ' offhand' : '') + ' × ' + r2(w.DPS) + ' dps',
+      ((2 * d + b) / ci.dly) * 10 * (rangedSkill(ci.skill) ? 0.5 : 1) * ro * oh * w.DPS)
   }
   if (ci.ac) {
     const ret = acRet(ci, w)
@@ -283,14 +306,14 @@ export function parts(ci: Item, tier: number, w: Weights, slot?: string): Part[]
   }
   if (ci.haste) add('Haste', 'Haste ' + (ci.haste + tier) + '% × 2.5 × ' + r2(w.DPS), hasteTerm(ci.haste, tier, w))
   if (ci.effect && ci.effect.includes('(Combat') && (ci.dmg && ci.dly ? wpnActive(slot, ci.skill) : true)) {
-    const ro = rangedOn(ci.skill, w)
-    add('Proc', 'Combat proc ≈ 2 dps' + (ro !== 1 ? ' × ' + r2(ro) + ' never-shoot' : '') + ' × ' + r2(w.DPS), 2 * ro * w.DPS)
+    const ro = rangedOn(ci.skill, w), oh = ci.dmg && ci.dly ? offhandOn(slot, w) : 1
+    add('Proc', 'Combat proc ≈ 2 dps' + (ro !== 1 ? ' × ' + r2(ro) + ' never-shoot' : '') + (oh !== 1 ? ' × ' + r2(oh) + ' offhand' : '') + ' × ' + r2(w.DPS), 2 * ro * oh * w.DPS)
   }
   if (ci.focus) add('Focus', 'Focus effect + 10 × ' + r2(w.MANA || 0) + ' mana wt', 10 * (w.MANA || 0))
   if (ci.hp) add('HP', 'HP ' + tierStat(ci.hp, tier) + ' × 0.2 × ' + r2(w.HP), tierStat(ci.hp, tier) * 0.2 * w.HP)
   if (ci.mana) add('Mana', 'Mana ' + tierStat(ci.mana, tier) + ' × 0.2 × ' + r2(w.MANA), tierStat(ci.mana, tier) * 0.2 * w.MANA)
   if (ci.end) add('END', 'END ' + tierStat(ci.end, tier) + ' × 0.05 × ' + r2(w.DPS), tierStat(ci.end, tier) * 0.05 * w.DPS)
-  if (ci.stats.SV) add('Resists', 'Resists ' + tierStat(ci.stats.SV, tier) + ' × 0.3 × ' + r2(w.SV), tierStat(ci.stats.SV, tier) * 0.3 * w.SV)
+  if (ci.stats.SV) add('Resists', 'Resists ' + tierSV(ci, tier) + ' × 0.3 × ' + r2(w.SV), tierSV(ci, tier) * 0.3 * w.SV)
   if (ci.hpRegen) add('HP Regen', 'HP Regen ' + tierStat(ci.hpRegen, tier) + ' × 6 × ' + r2(w.HP), tierStat(ci.hpRegen, tier) * 6 * w.HP)
   if (ci.manaRegen) add('Mana Regen', 'Mana Regen ' + tierStat(ci.manaRegen, tier) + ' × 6 × ' + r2(w.MANA), tierStat(ci.manaRegen, tier) * 6 * w.MANA)
   if (ci.endRegen) add('End Regen', 'End Regen ' + tierStat(ci.endRegen, tier) + ' × 1.5 × ' + r2(w.DPS), tierStat(ci.endRegen, tier) * 1.5 * w.DPS)
@@ -318,16 +341,24 @@ export function whyDiff(a: Item, at: number, b: Item, bt: number, w: Weights, sl
 // existing numeric score sort keeps working; the boost stays out of displayed
 // scores. Pure caster/priest trios keep plain score rank — stat sticks win.
 // Secondary gets the same treatment when the trio can dual wield (offhand
-// ratio uses no damage bonus — mainhand only in-game); shield-only trios keep
-// score rank so shields aren't buried under every weapon.
+// ratio uses no damage bonus — mainhand only in-game); shield-only trios and
+// the shield-tank toggle (w.OFFHAND = 0) keep score rank so shields aren't
+// buried under every weapon. Either way the boost only fires when the member
+// who justifies it can actually hold the item: a CLR-only mace must not top a
+// WAR/CLR/WIZ trio's Primary — the cleric ranks stat-first and the warrior
+// can't equip it.
+const MELEE_GROUPS = ['Melee', 'Hybrids']
+const DW_CLASSES = ['WAR', 'MNK', 'ROG', 'RNG', 'BRD', 'BST']
+const canEquip = (ci: Item, c: string) => !ci.classes.length || ci.classes.includes(c)
 export const hasMeleeTrio = (trio: string[]) =>
-  trio.some(c => ['Melee', 'Hybrids'].includes(CLASSES.find(x => x.code === c)?.group || ''))
-export const canDualWield = (trio: string[]) =>
-  trio.some(c => ['WAR', 'MNK', 'ROG', 'RNG', 'BRD', 'BST'].includes(c))
+  trio.some(c => MELEE_GROUPS.includes(CLASSES.find(x => x.code === c)?.group || ''))
+export const canDualWield = (trio: string[]) => trio.some(c => DW_CLASSES.includes(c))
 export const rankScore = (ci: Item, tier: number, w: Weights, slot: string, trio: string[]) => {
   let s = score(ci, tier, w, slot)
-  const wpnSlot = slot === 'Primary' || (slot === 'Secondary' && canDualWield(trio))
-  if (wpnSlot && ci.dmg > 0 && ci.dly > 0 && !rangedSkill(ci.skill) && hasMeleeTrio(trio)) {
+  const wpnSlot = slot === 'Primary'
+    ? trio.some(c => MELEE_GROUPS.includes(CLASSES.find(x => x.code === c)?.group || '') && canEquip(ci, c))
+    : slot === 'Secondary' && (w.OFFHAND ?? 1) > 0 && trio.some(c => DW_CLASSES.includes(c) && canEquip(ci, c))
+  if (wpnSlot && ci.dmg > 0 && ci.dly > 0 && !rangedSkill(ci.skill)) {
     const d = tierDmg(ci.dmg, tier)
     s += ((2 * d + (slot === 'Primary' ? dmgBonus(ci.skill, ci.dly) : 0)) / ci.dly) * 1000
     // Backstab hits for ~25× piercer damage (max, at 50) every ~10s, so a
@@ -337,7 +368,7 @@ export const rankScore = (ci: Item, tier: number, w: Weights, slot: string, trio
     // scale as the white-damage boost so the two trade off proportionally.
     // Only piercers the rogue can actually equip backstab (a WAR-only lance
     // in a ROG/WAR trio must not get the boost). Backstab swings from Primary.
-    if (slot === 'Primary' && trio.includes('ROG') && ci.skill === 'Piercing' && (!ci.classes.length || ci.classes.includes('ROG')))
+    if (slot === 'Primary' && trio.includes('ROG') && ci.skill === 'Piercing' && canEquip(ci, 'ROG'))
       s += (ci.backstab ? tierDmg(ci.backstab, tier) : d) * 125
   }
   return s

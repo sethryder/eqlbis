@@ -39,7 +39,8 @@ modeled.
   50–100× estimate.
 - **Endurance 0.05 × w.DPS**: token; bump if EQL adds endurance-cost discs.
 - **Resists 0.3 × w.SV** with per-class SV weights ~1 for melee/tanks (raid
-  fear/AE checks), 0.5 casters.
+  fear/AE checks), 0.5 casters. Tier scaling applies per individual resist
+  (the in-game min +1/tier is per stat), not once to the summed SV bucket.
 
 ## Per-class notes
 
@@ -75,8 +76,12 @@ plain ratio — a flat level-based bonus lands on every main-hand swing (starts
 L28; off-hand never gets it), which favors fast weapons and delay-bracketed 2H:
 
 - 1H bonus at 50: `floor((50-25)/3)` = **8**; 2H = 9 under 28 delay, **14** at
-  28+. At 60: 1H 11; 2H 12 / ~30 / ~38 / 49 by delay bracket (Lucy table via
-  EQEmu). `dmgBonus()` is calibrated at the level-50 cap — retune if it rises.
+  28+, plus the slow-weapon brackets from EQEmu's GetWeaponDamageBonus —
+  `+floor((dly-40)/3)+1` at 40+ delay and +2 more at 45+ (so a 40-delay 2H
+  gets 15, a 45-delay 18). Ranged attacks (Archery/Throwing) get **no**
+  damage bonus — it lands on main-hand melee swings only. `dmgBonus()` is
+  calibrated at the level-50 cap — retune if it rises (at 60: 1H 11; 2H
+  12 / ~30 / ~38 / 49 by delay bracket).
 - **Rogue backstab** hits for ~25× piercer damage (max, at 50, ~37× at 60)
   every ~10s ≈ 1.25 DPS per damage point — rogue-trio Primary ranking counts
   piercer damage a second time. The custom "Backstab DMG" item stat *replaces*
@@ -90,10 +95,18 @@ L28; off-hand never gets it), which favors fast weapons and delay-bracketed 2H:
   rangers vs stationary targets) and pre-AA archery is utility-grade.
 - **Slot gating**: weapon damage and procs only score where the weapon can
   swing (Primary/Secondary; Range/Ammo for ranged) — a piercer viewed in the
-  Range slot is a stat stick.
-- **Not modeled** (build choices, like shield-vs-dual-wield): the offhand
-  forfeited by choosing a 2H, dual-wield/double-attack rates, monk bare-fist
-  baseline (14/26 at 60 — some mid H2H weapons are worse than empty hands).
+  Range slot is a stat stick. Secondary swing credit additionally requires
+  someone who dual wields: trios with no dual-wield class get `w.OFFHAND = 0`
+  automatically (their offhand never swings), and the "Shield tank" toggle
+  sets it for dual-wield trios that hold a shield anyway — either way
+  Secondary weapons rank as stat sticks and shields aren't buried.
+- **Ratio-first boosts are equip-gated**: Primary/Secondary rank weapons by
+  ratio only when the melee/hybrid (or dual-wield) member justifying the
+  boost can actually equip the item — a CLR-only mace in a WAR/CLR/WIZ trio
+  ranks stat-first like the cleric who'd hold it.
+- **Not modeled** (build choices): the offhand forfeited by choosing a 2H,
+  dual-wield/double-attack rates, monk bare-fist baseline (14/26 at 60 —
+  some mid H2H weapons are worse than empty hands).
 
 ## Other scored effects and adjustments
 

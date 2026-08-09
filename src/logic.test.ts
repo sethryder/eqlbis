@@ -1,8 +1,8 @@
 // Self-check for the parse + scoring core. Run: npm test (node 22.18+ strips types natively).
 import { readFileSync } from 'node:fs'
 import assert from 'node:assert/strict'
-import { blendWeights, hasMeleeTrio, parseInv, parts, r2, rankScore, score, tierDmg, tierStat, whyDiff } from './logic.ts'
-import type { Item } from './logic.ts'
+import { blendWeights, dmgBonus, hasMeleeTrio, parseInv, parts, r2, rankScore, score, tierDmg, tierStat, whyDiff } from './logic.ts'
+import type { Item, Weights } from './logic.ts'
 
 const inv = parseInv(readFileSync(new URL('../public/Washclof_oggok-Inventory.txt', import.meta.url), 'utf8'))
 const by = (s: string) => inv.filter(e => e.source === s).length
@@ -26,7 +26,7 @@ assert.deepEqual({ base: belt.base, tier: belt.tier, loc: belt.loc, source: belt
 assert.ok(!inv.some(e => /\(Exaltation\)|^Empty$/.test(e.base)))
 assert.ok(!inv.some(e => e.base.endsWith('*')))
 
-// Tier math: +10%/tier floored, min +1/tier; dmg +5%/tier
+// Tier math: +10%/tier floored, min +1/tier; dmg +10%/tier floored, no min
 assert.equal(tierStat(3, 6), 9)   // floor(1.8)=1 < 6 -> min kicks in
 assert.equal(tierStat(10, 6), 16) // floor(6)=6
 assert.equal(tierStat(-2, 6), -2) // negatives un-tiered
@@ -73,16 +73,25 @@ for (const ci of [item, buckler]) {
 const wpn: Item = { ...item, name: 'Test Blade', slots: ['Primary'], ac: 0, stats: {}, dmg: 5, dly: 25, skill: '1H Slashing' }
 assert.equal(r2(score(wpn, 0, flat)), 7.2)
 assert.equal(r2(score(wpn, 6, flat)), 11.4)
-// 2H gets the delay-bracketed bonus (14 at 28+ dly); archery counts half
-assert.equal(r2(score({ ...wpn, skill: '2H Slashing', dmg: 20, dly: 40 }, 0, flat)), 13.5) // (40+14)/40×10
-assert.equal(r2(score({ ...wpn, skill: 'Archery', dmg: 20, dly: 40 }, 0, flat)), 6) // (40+8)/40×10×0.5
+// Damage bonus: mainhand melee only. Ranged attacks get none in this era;
+// slow 2H gains the 40+/45+ delay brackets (EQEmu GetWeaponDamageBonus at 50).
+assert.equal(dmgBonus('1H Slashing', 20), 8)
+assert.equal(dmgBonus('Archery', 40), 0)
+assert.equal(dmgBonus('Throwing', 25), 0)
+assert.equal(dmgBonus('2H Slashing', 27), 9)
+assert.equal(dmgBonus('2H Slashing', 30), 14)
+assert.equal(dmgBonus('2H Blunt', 40), 15)
+assert.equal(dmgBonus('2H Blunt', 44), 16)
+assert.equal(dmgBonus('2H Blunt', 45), 18)
+assert.equal(r2(score({ ...wpn, skill: '2H Slashing', dmg: 20, dly: 40 }, 0, flat)), 13.75) // (40+15)/40×10
+assert.equal(r2(score({ ...wpn, skill: 'Archery', dmg: 20, dly: 40 }, 0, flat)), 5) // 40/40×10×0.5, no bonus
 // Combat procs are a flat 2 × w.DPS credit; clickies get nothing
 assert.equal(r2(score({ ...wpn, effect: 'Ykesha (Combat, Casting Time: Instant) at Level 37' }, 0, flat)), 9.2)
 assert.equal(r2(score({ ...wpn, effect: 'Gate (Any Slot/Can Equip, Casting Time: 3.0)' }, 0, flat)), 7.2)
 // Weapon dmg/proc only count where the weapon can swing: a melee piercer
 // scored for the Range slot is a stat stick; a bow in Range keeps its credit
 assert.equal(score({ ...wpn, skill: 'Piercing' }, 0, flat, 'Range'), 0)
-assert.equal(r2(score({ ...wpn, skill: 'Archery' }, 0, flat, 'Range')), 3.6) // (10+8)/25×10×0.5
+assert.equal(score({ ...wpn, skill: 'Archery' }, 0, flat, 'Range'), 2) // 10/25×10×0.5
 // Never-shoot builds (w.RANGED = 0): bows/throwing lose DPS credit but keep
 // stats; melee weapon credit is untouched
 const noRng = { ...flat, RANGED: 0 }
@@ -103,6 +112,26 @@ assert.equal(score({ ...item, ac: 0, stats: {}, effect: 'Anarchy (Combat)' }, 0,
     assert.ok(Math.abs(sum - score(bow, 0, wx, 'Range')) < 1e-9, 'noRanged parts drift')
   }
 }
+// Offhand credit is gated on someone actually dual wielding: blendWeights
+// zeroes OFFHAND for no-DW trios and for the shield-tank toggle, muting
+// Secondary weapon dmg + proc credit (stats survive); Primary is untouched.
+assert.equal(blendWeights(['SHD', 'CLR', 'ENC'], 'balanced', {}).OFFHAND, 0)
+assert.equal(blendWeights(['ROG', 'SHM', 'ENC'], 'balanced', {}).OFFHAND, undefined)
+assert.equal(blendWeights(['ROG', 'SHM', 'ENC'], 'balanced', {}, false, false, true).OFFHAND, 0)
+assert.equal(blendWeights([], 'balanced', {}).OFFHAND, undefined)
+const noOff = { ...flat, OFFHAND: 0 }
+assert.equal(score(wpn, 0, noOff, 'Secondary'), 0)
+assert.equal(score({ ...wpn, effect: 'Ykesha (Combat, Casting Time: Instant)' }, 0, noOff, 'Secondary'), 0)
+assert.equal(score({ ...wpn, stats: { STA: 4 } }, 0, noOff, 'Secondary'), 4)
+assert.equal(r2(score(wpn, 0, noOff, 'Primary')), 7.2)
+
+// Tiers apply per resist (min +1/tier each), not once to the summed SV
+// bucket: +2 to all five resists at tier 5 = 5 × tierStat(2,5)=7 → 35,
+// not tierStat(10,5)=15. Untiered items keep the bucket as-is.
+const veil: Item = { ...item, name: 'Test Veil', ac: 0, stats: { SV: 10 }, resists: { FIRE: 2, COLD: 2, MAGIC: 2, DISEASE: 2, POISON: 2 } }
+assert.equal(r2(score(veil, 5, flat)), 12) // 35×0.3 + 5 SV Void×0.3
+assert.equal(score(veil, 0, flat), 3)
+
 // Worn haste: 21% × 2.5 × w.DPS(1) = 52.5; flat +1%/tier -> 27 × 2.5 = 67.5
 const sash: Item = { ...item, name: 'Test Sash', ac: 0, stats: {}, haste: 21 }
 assert.equal(score(sash, 0, flat), 52.5)
@@ -144,7 +173,17 @@ assert.ok(rankScore(stick, 0, flat, 'Primary', ['CLR', 'WIZ', 'ENC']) > rankScor
 // a trio with no dual-wielder keeps score order — its offhand weapon never swings.
 assert.ok(rankScore(blade, 0, flat, 'Secondary', ['ROG', 'SHM', 'ENC']) > rankScore(stick, 0, flat, 'Secondary', ['ROG', 'SHM', 'ENC']))
 assert.ok(rankScore(stick, 0, flat, 'Secondary', ['SHD', 'SHM', 'ENC']) > rankScore(blade, 0, flat, 'Secondary', ['SHD', 'SHM', 'ENC']))
+// ...and the shield-tank toggle (OFFHAND 0) drops the boost even for dual-
+// wield trios, so shields/stat items aren't buried under every weapon.
+assert.ok(rankScore(stick, 0, noOff, 'Secondary', ['ROG', 'SHM', 'ENC']) > rankScore(blade, 0, noOff, 'Secondary', ['ROG', 'SHM', 'ENC']))
 assert.ok(hasMeleeTrio(['BRD']) && !hasMeleeTrio(['CLR', 'WIZ']))
+// The boost needs a melee/hybrid member who can actually HOLD the item: a
+// CLR-only blade in a WAR/CLR/WIZ trio ranks stat-first (the cleric ranks
+// stat sticks, the warrior can't equip it), in Primary and Secondary both.
+const clrBlade: Item = { ...blade, name: 'Test Cleric Mace', classes: ['CLR'] }
+assert.ok(rankScore(clrBlade, 0, flat, 'Primary', ['WAR', 'CLR', 'WIZ']) < rankScore(blade, 0, flat, 'Primary', ['WAR', 'CLR', 'WIZ']))
+assert.ok(rankScore(stick, 0, flat, 'Primary', ['WAR', 'CLR', 'WIZ']) > rankScore(clrBlade, 0, flat, 'Primary', ['WAR', 'CLR', 'WIZ']))
+assert.ok(rankScore(clrBlade, 0, flat, 'Secondary', ['ROG', 'CLR', 'WIZ']) < rankScore(blade, 0, flat, 'Secondary', ['ROG', 'CLR', 'WIZ']))
 // Rogue trios rank Primary piercers with a backstab term (+125/dmg): a 12/26
 // piercer must outrank a 14/28 slasher (which wins on white damage alone) for
 // rogues, while a rogue-less melee trio keeps them in white-damage order.
@@ -167,6 +206,16 @@ for (const [ci, t, sl] of [
 ] as [Item, number, string?][]) {
   const sum = parts(ci, t, flat, sl).reduce((s, p) => s + p.val, 0)
   assert.ok(Math.abs(sum - score(ci, t, flat, sl)) < 1e-9, 'parts drift on ' + ci.name)
+}
+// ...including the offhand-muted, per-resist-tier, and slow-2H branches
+for (const [ci, t, sl, wx] of [
+  [wpn, 0, 'Secondary', noOff],
+  [{ ...wpn, effect: 'Ykesha (Combat, Casting Time: Instant)' }, 0, 'Secondary', noOff],
+  [veil, 5, undefined, flat],
+  [{ ...wpn, skill: '2H Blunt', dmg: 20, dly: 45 }, 0, undefined, flat],
+] as [Item, number, string | undefined, Weights][]) {
+  const sum = parts(ci, t, wx, sl).reduce((s, p) => s + p.val, 0)
+  assert.ok(Math.abs(sum - score(ci, t, wx, sl)) < 1e-9, 'parts drift on ' + ci.name)
 }
 // whyDiff: biggest contribution delta first, signed toward the first item
 const why = whyDiff(stick, 0, blade, 0, flat)

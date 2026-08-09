@@ -17,6 +17,15 @@ const BROWSE_SORTS: [string, string, string][] = [
 ]
 const MIN_UPGRADE_DELTA = 0.1
 
+// Weight overrides arrive from share links and old localStorage drafts —
+// unknown keys or non-finite values would NaN every score, so keep only real
+// numbers on known keys.
+const cleanWeights = (o: unknown): Weights => {
+  const w: Weights = {}
+  if (o && typeof o === 'object') for (const [k, v] of Object.entries(o)) if (KEYS.includes(k) && typeof v === 'number' && Number.isFinite(v)) w[k] = v
+  return w
+}
+
 const MONO = "'IBM Plex Mono', monospace"
 const CINZEL = "Cinzel, serif"
 
@@ -93,7 +102,7 @@ type State = {
   mode: 'dark' | 'light'; trio: string[]; tab: 'slots' | 'upgrades' | 'browse' | 'effects' | 'pets'; petSel: string
   catalog: Item[]; catalogLoaded: boolean
   inv: InvEntry[] | null; invName: string; sources: Record<InvSource, boolean>
-  weightOv: Weights; weightsOpen: boolean; acCap: boolean; noRanged: boolean; browseSlot: string; charLevel: number; effView: 'owned' | 'all'
+  weightOv: Weights; weightsOpen: boolean; acCap: boolean; noRanged: boolean; shieldSec: boolean; browseSlot: string; charLevel: number; effView: 'owned' | 'all'
   browseSearch: string; browseSort: string; browseOwned: boolean
   compare: { name: string; tier: number; slot: string }[]
   wpnOff: string[]; obtOff: string[]; preset: string; goal: string; copied: boolean; wnonce: number
@@ -105,7 +114,7 @@ export default class App extends Component<{}, State> {
   state: State = {
     mode: 'dark', trio: [], tab: 'slots', petSel: '', catalog: [], catalogLoaded: false,
     inv: null, invName: '', sources: { equipped: true, bags: true, bank: true, stash: true, hoard: true, depot: true },
-    weightOv: {}, weightsOpen: false, acCap: false, noRanged: false, browseSlot: 'Primary', charLevel: 50, effView: 'owned', compare: [],
+    weightOv: {}, weightsOpen: false, acCap: false, noRanged: false, shieldSec: false, browseSlot: 'Primary', charLevel: 50, effView: 'owned', compare: [],
     browseSearch: '', browseSort: 'rank', browseOwned: false,
     wpnOff: [], obtOff: DEFAULT_OBT_OFF, preset: 'balanced', goal: 'weights', copied: false, wnonce: 0,
     iconIds: null, spellDesc: {},
@@ -117,7 +126,7 @@ export default class App extends Component<{}, State> {
 
   shareUrl() {
     const s = this.state
-    const d = { t: s.trio, l: s.charLevel, p: s.preset, g: s.goal, w: s.weightOv, x: s.wpnOff, o: s.obtOff, a: s.acCap ? 1 : undefined, r: s.noRanged ? 1 : undefined }
+    const d = { t: s.trio, l: s.charLevel, p: s.preset, g: s.goal, w: s.weightOv, x: s.wpnOff, o: s.obtOff, a: s.acCap ? 1 : undefined, r: s.noRanged ? 1 : undefined, sb: s.shieldSec ? 1 : undefined }
     return (window.location.href || '').split('#')[0] + '#b=' + encodeURIComponent(b64encode(JSON.stringify(d)))
   }
 
@@ -134,9 +143,10 @@ export default class App extends Component<{}, State> {
       if (shared.l) next.charLevel = Math.max(1, Math.min(50, +shared.l || 50))
       if (shared.p && PRESETS.some(p => p.id === shared.p)) next.preset = shared.p
       if (shared.g && GOALS.some(g => g.id === shared.g)) next.goal = shared.g
-      if (shared.w && typeof shared.w === 'object') next.weightOv = shared.w
+      if (shared.w && typeof shared.w === 'object') next.weightOv = cleanWeights(shared.w)
       if (shared.a) next.acCap = true
       if (shared.r) next.noRanged = true
+      if (shared.sb) next.shieldSec = true
       if (Array.isArray(shared.x)) next.wpnOff = shared.x.filter((t: string) => WPN_TYPES.includes(t))
       if (Array.isArray(shared.o)) next.obtOff = shared.o.filter((t: string) => OBTAIN.some(([id]) => id === t))
       this.set(next)
@@ -149,9 +159,10 @@ export default class App extends Component<{}, State> {
       if (draft) {
         if (!shared) {
           if (Array.isArray(draft.trio)) next.trio = draft.trio.filter((c: string) => W[c]).slice(0, 3)
-          if (draft.weightOv) next.weightOv = draft.weightOv
+          if (draft.weightOv) next.weightOv = cleanWeights(draft.weightOv)
           if (draft.acCap) next.acCap = true
           if (draft.noRanged) next.noRanged = true
+          if (draft.shieldSec) next.shieldSec = true
           if (draft.charLevel) next.charLevel = draft.charLevel
           if (Array.isArray(draft.wpnOff)) next.wpnOff = draft.wpnOff
           // Drafts saved before the 'unknown' channel existed (v < 2) get it
@@ -183,7 +194,7 @@ export default class App extends Component<{}, State> {
     try {
       localStorage.setItem('eqlbis.mode.v1', this.state.mode)
       localStorage.setItem('eqlbis.draft.v1', JSON.stringify({
-        v: 2, trio: this.state.trio, sources: this.state.sources, weightOv: this.state.weightOv, acCap: this.state.acCap, noRanged: this.state.noRanged,
+        v: 2, trio: this.state.trio, sources: this.state.sources, weightOv: this.state.weightOv, acCap: this.state.acCap, noRanged: this.state.noRanged, shieldSec: this.state.shieldSec,
         charLevel: this.state.charLevel, wpnOff: this.state.wpnOff, obtOff: this.state.obtOff, preset: this.state.preset, goal: this.state.goal,
         invText: this.invText, invName: this.state.invName, petSel: this.state.petSel,
       }))
@@ -213,7 +224,7 @@ export default class App extends Component<{}, State> {
     }
     return this.idx
   }
-  weights() { return blendWeights(this.state.trio, this.state.preset, this.state.weightOv, this.state.acCap, this.state.noRanged) }
+  weights() { return blendWeights(this.state.trio, this.state.preset, this.state.weightOv, this.state.acCap, this.state.noRanged, this.state.shieldSec) }
   // Weights for Any Slot ranking: a goal table if one is picked, else the
   // regular stat weights ('weights' = same as everywhere else).
   goalWeights(): Weights {
@@ -520,8 +531,9 @@ export default class App extends Component<{}, State> {
       const eqRks = eqEntries.map(e => { const ci = known(e); return ci ? rankScore(ci, e.tier, wRow, slot, trio) : 0 }).sort((a, b) => b - a)
       // Effective ratio on the familiar dmg/dly scale, but damage-bonus aware
       // — (2×dmg + bonus)/(2×dly) — so the "ratio +X" label agrees with the
-      // rankScore boost that decides upgrade-ness.
-      const effRatio = (ci: Item, tier: number) => ci.dmg && ci.dly ? (2 * tierDmg(ci.dmg, tier) + dmgBonus(ci.skill, ci.dly)) / (2 * ci.dly) : 0
+      // rankScore boost that decides upgrade-ness (the bonus is mainhand-only,
+      // so Secondary's ratio drops it, exactly like the boost does).
+      const effRatio = (ci: Item, tier: number) => ci.dmg && ci.dly ? (2 * tierDmg(ci.dmg, tier) + (slot === 'Primary' ? dmgBonus(ci.skill, ci.dly) : 0)) / (2 * ci.dly) : 0
       const bestEqRatio = Math.max(0, ...eqEntries.map(e => { const ci = known(e); return ci ? effRatio(ci, e.tier) : 0 }))
       const tops = st.catalog
         .filter(ci => slotFits(ci, slot) && this.usable(ci) && lvlOk(ci) && wpnOk(ci) && obtOk(ci))
@@ -566,8 +578,10 @@ export default class App extends Component<{}, State> {
       }
     })
 
+    // Weapon slots rank ratio-first, where a real upgrade can have a near-zero
+    // raw score delta — exempt both from the display floor.
     const upgrades = slotRows
-      .flatMap(r => r.availList.filter(a => !a.owned && a.upgrade && (a.delta > MIN_UPGRADE_DELTA || r.slot === 'Primary')).map(a => ({ slot: r.slot, item: a })))
+      .flatMap(r => r.availList.filter(a => !a.owned && a.upgrade && (a.delta > MIN_UPGRADE_DELTA || r.slot === 'Primary' || r.slot === 'Secondary')).map(a => ({ slot: r.slot, item: a })))
       .sort((a, b) => b.item.delta - a.item.delta)
 
     const browseSlots = [ALL_SLOTS, ...SLOT_TYPES.filter(s => s !== 'Any Slot')]
@@ -740,7 +754,7 @@ export default class App extends Component<{}, State> {
             style={{ padding: '9px 14px', borderRadius: 'var(--radius)', border: '1px solid var(--accent)', background: 'var(--accent)', color: 'var(--accentText)', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
             {st.copied ? 'Copied!' : 'Share'}
           </button>
-          <button className="eq-del" onClick={() => { this.invText = null; this.set({ trio: [], inv: null, invName: '', browseOwned: false, weightOv: {}, acCap: false, noRanged: false, wpnOff: [], obtOff: DEFAULT_OBT_OFF, charLevel: 50, preset: 'balanced', goal: 'weights', tab: 'slots', wnonce: st.wnonce + 1 }) }}
+          <button className="eq-del" onClick={() => { this.invText = null; this.set({ trio: [], inv: null, invName: '', browseOwned: false, weightOv: {}, acCap: false, noRanged: false, shieldSec: false, wpnOff: [], obtOff: DEFAULT_OBT_OFF, charLevel: 50, preset: 'balanced', goal: 'weights', tab: 'slots', wnonce: st.wnonce + 1 }) }}
             style={{ padding: '9px 14px', borderRadius: 'var(--radius)', border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)', cursor: 'pointer', fontSize: 13 }}>
             Reset
           </button>
@@ -928,9 +942,13 @@ export default class App extends Component<{}, State> {
                 <input type="checkbox" checked={st.acCap} onChange={ev => this.set({ acCap: ev.target.checked })} />
                 At AC mitigation softcap — non-shield AC counts {st.acCap ? (w.ACRET !== undefined ? '×' + w.ACRET : 'per your manual AC override') : 'at your trio’s post-cap return'}
               </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '0 16px 12px', fontSize: 12, color: 'var(--muted)', cursor: 'pointer' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '0 16px 8px', fontSize: 12, color: 'var(--muted)', cursor: 'pointer' }}>
                 <input type="checkbox" checked={st.noRanged} onChange={ev => this.set({ noRanged: ev.target.checked })} />
                 Never shoot — bows &amp; throwing rank as stat sticks
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '0 16px 12px', fontSize: 12, color: 'var(--muted)', cursor: 'pointer' }}>
+                <input type="checkbox" checked={st.shieldSec} onChange={ev => this.set({ shieldSec: ev.target.checked })} />
+                Shield tank — offhand never swings; Secondary ranks shields &amp; stats over weapon ratio
               </label>
               {st.weightsOpen && (
                 <div style={{ padding: '0 16px 14px', borderTop: '1px solid var(--border)' }}>
@@ -948,7 +966,7 @@ export default class App extends Component<{}, State> {
                       </label>
                     ))}
                   </div>
-                  <button className="eq-ghost" onClick={() => this.set({ weightOv: {}, preset: 'balanced', acCap: false, noRanged: false, wnonce: st.wnonce + 1 })}
+                  <button className="eq-ghost" onClick={() => this.set({ weightOv: {}, preset: 'balanced', acCap: false, noRanged: false, shieldSec: false, wnonce: st.wnonce + 1 })}
                     style={{ marginTop: 10, padding: '7px 12px', borderRadius: 'var(--radius)', border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)', cursor: 'pointer', fontSize: 12 }}>
                     Reset to class defaults
                   </button>
@@ -975,7 +993,12 @@ export default class App extends Component<{}, State> {
                   <div>Slot</div><div>Equipped</div><div>Best Owned</div><div>Best Available</div>
                 </div>
                 <div className="eqs" style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
-                  {slotRows.map(r => (
+                  {slotRows.map(r => {
+                    // Any Slot ranks by the goal weights — display with the same
+                    // weights the picks were chosen by, or badges/tooltips
+                    // contradict the ranking next to them.
+                    const wR = r.slot === 'Any Slot' ? gw : w
+                    return (
                     <div key={r.slot} style={{ ...slotGrid, padding: '13px 18px', borderBottom: '1px solid var(--border)', alignItems: 'start' }}>
                       <div style={{ fontFamily: CINZEL, fontSize: 13, fontWeight: 600, paddingTop: 4 }}>{r.slot}</div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0 }}>
@@ -987,9 +1010,9 @@ export default class App extends Component<{}, State> {
                       <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
                         {r.ownedList.map((p, i) => (
                           <div key={i}>{this.unit(
-                            this.dispItem(p.ci, p.e.tier, w, [p.isEq ? 'equipped' : p.e.source, ...(p.belowEq ? ['below equipped'] : [])], r.slot),
+                            this.dispItem(p.ci, p.e.tier, wR, [p.isEq ? 'equipped' : p.e.source, ...(p.belowEq ? ['below equipped'] : [])], r.slot),
                             <>{p.e.base}{this.tierSpan(p.e.tier)}</>,
-                            this.badge(fmt(score(p.ci, p.e.tier, w, r.slot)), [...this.tipFor(p.ci, p.e.tier, w, r.slot), ...p.why]),
+                            this.badge(fmt(score(p.ci, p.e.tier, wR, r.slot)), [...this.tipFor(p.ci, p.e.tier, wR, r.slot), ...p.why]),
                             this.infoTip(p.ci, p.e.tier, p.why))}</div>
                         ))}
                         {r.ownedList.length === 0 && <div style={{ fontSize: 12, color: 'var(--muted)', paddingTop: 4 }}>{r.noOwnedText}</div>}
@@ -1001,7 +1024,7 @@ export default class App extends Component<{}, State> {
                         {r.availList.length === 0 && <div style={{ fontSize: 12, color: 'var(--muted)', paddingTop: 4 }}>no catalog data</div>}
                       </div>
                     </div>
-                  ))}
+                  )})}
                 </div>
               </div>
             )}

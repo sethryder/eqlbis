@@ -245,7 +245,12 @@ function parseItem(title, text, zoneSet = new Set(), zoneLevels = new Map()) {
 
   // \s* before <br: some statsblocks write "Skill: SHIELD<br>" with no space.
   const skillRaw = (statsText.match(/Skill:\s*([A-Za-z0-9 ]+?)\s*(?:Atk|<br)/i) || [])[1]?.trim() || "";
-  const skill = /^shield$/i.test(skillRaw) ? "Shield" : skillRaw;
+  // Normalize wiki skill spellings to the app's WPN_TYPES vocabulary: the
+  // wiki writes "1H Piercing" on one item and versions throwing as
+  // Throwingv1/v2 — the filter and backstab checks match exact strings.
+  const skill = /^shield$/i.test(skillRaw) ? "Shield"
+    : skillRaw === "1H Piercing" ? "Piercing"
+    : /^Throwingv\d+$/.test(skillRaw) ? "Throwing" : skillRaw;
   // Shield detection is layered: an explicit "Skill: SHIELD" statsblock line
   // (rare) wins; else shield-words in the name among AC'd no-damage Secondary
   // items; main() adds an icon-propagation pass that catches the rest and
