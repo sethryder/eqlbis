@@ -44,11 +44,29 @@ assert.equal(w.WIS, 1)   // (0+3+0)/3
 // Overrides win; presets multiply
 assert.equal(blendWeights(['WAR', 'CLR', 'WIZ'], 'balanced', { AC: 9 }).AC, 9)
 assert.equal(blendWeights(['WAR'], 'tank', {}).AC, 5.4) // 3 × 1.8
+// At the mitigation softcap the trio-blended post-cap return rides along as
+// ACRET (EQEmu GetSoftcapReturns; EQL's client cap matches the live table).
+// A manual AC override wins outright — no ACRET stacks on top of it.
+assert.equal(blendWeights(['MNK', 'SHD', 'SHM'], 'balanced', {}, true).ACRET, 0.3) // (0.3+0.33+0.28)/3
+assert.equal(blendWeights(['WIZ'], 'balanced', {}, true).ACRET, 0.25)
+assert.equal(blendWeights(['WAR'], 'balanced', {}, true).AC, 3) // AC weight itself untouched
+assert.equal(blendWeights(['WAR'], 'balanced', {}).ACRET, undefined)
+assert.equal(blendWeights(['WAR'], 'balanced', { AC: 9 }, true).ACRET, undefined)
 
 // Score: Crushbone Belt at flat weights = AC 3 + STR 2 + SV 5×0.3 = 6.5
 const flat = blendWeights([], 'balanced', {})
 const item: Item = { name: 'Crushbone Belt', type: 'Armor', slots: ['Waist'], classes: [], level: 0, ac: 3, hp: 0, mana: 0, dmg: 0, dly: 0, stats: { STR: 2, SV: 5 }, skill: '', icon: 971, zones: ['Crushbone'], flags: ['MAGIC'] }
 assert.equal(score(item, 0, flat), 6.5)
+// Softcapped AC: non-shield AC scales by ACRET; shield AC bypasses the cap
+// (EQEmu ACSum grows the softcap by shield AC 1:1)
+const capped = { ...flat, ACRET: 0.25 }
+assert.equal(score(item, 0, capped), 4.25) // AC 3×0.25 + STR 2 + SV 1.5
+const buckler: Item = { ...item, name: 'Test Buckler', slots: ['Secondary'], stats: {}, skill: 'Shield' }
+assert.equal(score(buckler, 0, capped), 3) // full AC despite the cap
+for (const ci of [item, buckler]) {
+  const sum = parts(ci, 0, capped).reduce((s, p) => s + p.val, 0)
+  assert.ok(Math.abs(sum - score(ci, 0, capped)) < 1e-9, 'capped parts drift on ' + ci.name)
+}
 // Tiered scores gain +1 SV Void/tier: tier × 0.3 × w.SV(1) on top of stats.
 // Weapon DPS term: (2×5dmg + 8 bonus)/25dly × 10 × w.DPS(1) = 7.2; tier 6
 // dmg 5+floor(3)=8 -> (16+8)/25 × 10 = 9.6, +1.8 void

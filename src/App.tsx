@@ -1,7 +1,7 @@
 import { Component, CSSProperties, ReactNode } from 'react'
 import {
   CLASSES, KEYS, GOALS, PRESETS, SLOT_TYPES, STAT_KEYS, W, WPN_TYPES,
-  b64decode, b64encode, blendWeights, dmgBonus, fmt, hasteTerm, parseInv, parts, r2, rankScore, score, tierDmg, tierStat, whyDiff,
+  b64decode, b64encode, blendWeights, dmgBonus, fmt, hasteTerm, parseInv, parts, r2, rankScore, score, softcapRet, tierDmg, tierStat, whyDiff,
 } from './logic'
 import type { InvEntry, InvSource, Item, Weights } from './logic'
 
@@ -93,7 +93,7 @@ type State = {
   mode: 'dark' | 'light'; trio: string[]; tab: 'slots' | 'upgrades' | 'browse' | 'effects' | 'pets'; petSel: string
   catalog: Item[]; catalogLoaded: boolean
   inv: InvEntry[] | null; invName: string; sources: Record<InvSource, boolean>
-  weightOv: Weights; weightsOpen: boolean; browseSlot: string; charLevel: number; effView: 'owned' | 'all'
+  weightOv: Weights; weightsOpen: boolean; acCap: boolean; browseSlot: string; charLevel: number; effView: 'owned' | 'all'
   browseSearch: string; browseSort: string; browseOwned: boolean
   compare: { name: string; tier: number; slot: string }[]
   wpnOff: string[]; obtOff: string[]; preset: string; goal: string; copied: boolean; wnonce: number
@@ -105,7 +105,7 @@ export default class App extends Component<{}, State> {
   state: State = {
     mode: 'dark', trio: [], tab: 'slots', petSel: '', catalog: [], catalogLoaded: false,
     inv: null, invName: '', sources: { equipped: true, bags: true, bank: true, stash: true, hoard: true, depot: true },
-    weightOv: {}, weightsOpen: false, browseSlot: 'Primary', charLevel: 50, effView: 'owned', compare: [],
+    weightOv: {}, weightsOpen: false, acCap: false, browseSlot: 'Primary', charLevel: 50, effView: 'owned', compare: [],
     browseSearch: '', browseSort: 'rank', browseOwned: false,
     wpnOff: [], obtOff: DEFAULT_OBT_OFF, preset: 'balanced', goal: 'weights', copied: false, wnonce: 0,
     iconIds: null, spellDesc: {},
@@ -117,7 +117,7 @@ export default class App extends Component<{}, State> {
 
   shareUrl() {
     const s = this.state
-    const d = { t: s.trio, l: s.charLevel, p: s.preset, g: s.goal, w: s.weightOv, x: s.wpnOff, o: s.obtOff }
+    const d = { t: s.trio, l: s.charLevel, p: s.preset, g: s.goal, w: s.weightOv, x: s.wpnOff, o: s.obtOff, a: s.acCap ? 1 : undefined }
     return (window.location.href || '').split('#')[0] + '#b=' + encodeURIComponent(b64encode(JSON.stringify(d)))
   }
 
@@ -135,6 +135,7 @@ export default class App extends Component<{}, State> {
       if (shared.p && PRESETS.some(p => p.id === shared.p)) next.preset = shared.p
       if (shared.g && GOALS.some(g => g.id === shared.g)) next.goal = shared.g
       if (shared.w && typeof shared.w === 'object') next.weightOv = shared.w
+      if (shared.a) next.acCap = true
       if (Array.isArray(shared.x)) next.wpnOff = shared.x.filter((t: string) => WPN_TYPES.includes(t))
       if (Array.isArray(shared.o)) next.obtOff = shared.o.filter((t: string) => OBTAIN.some(([id]) => id === t))
       this.set(next)
@@ -148,6 +149,7 @@ export default class App extends Component<{}, State> {
         if (!shared) {
           if (Array.isArray(draft.trio)) next.trio = draft.trio.filter((c: string) => W[c]).slice(0, 3)
           if (draft.weightOv) next.weightOv = draft.weightOv
+          if (draft.acCap) next.acCap = true
           if (draft.charLevel) next.charLevel = draft.charLevel
           if (Array.isArray(draft.wpnOff)) next.wpnOff = draft.wpnOff
           // Drafts saved before the 'unknown' channel existed (v < 2) get it
@@ -179,7 +181,7 @@ export default class App extends Component<{}, State> {
     try {
       localStorage.setItem('eqlbis.mode.v1', this.state.mode)
       localStorage.setItem('eqlbis.draft.v1', JSON.stringify({
-        v: 2, trio: this.state.trio, sources: this.state.sources, weightOv: this.state.weightOv,
+        v: 2, trio: this.state.trio, sources: this.state.sources, weightOv: this.state.weightOv, acCap: this.state.acCap,
         charLevel: this.state.charLevel, wpnOff: this.state.wpnOff, obtOff: this.state.obtOff, preset: this.state.preset, goal: this.state.goal,
         invText: this.invText, invName: this.state.invName, petSel: this.state.petSel,
       }))
@@ -209,12 +211,19 @@ export default class App extends Component<{}, State> {
     }
     return this.idx
   }
-  weights() { return blendWeights(this.state.trio, this.state.preset, this.state.weightOv) }
+  weights() { return blendWeights(this.state.trio, this.state.preset, this.state.weightOv, this.state.acCap) }
   // Weights for Any Slot ranking: a goal table if one is picked, else the
   // regular stat weights ('weights' = same as everywhere else).
   goalWeights(): Weights {
     const g = GOALS.find(x => x.id === this.state.goal)
-    if (g && g.abs) { const w: Weights = {}; for (const k of KEYS) w[k] = g.abs[k] || 0; return w }
+    if (g && g.abs) {
+      const w: Weights = {}
+      for (const k of KEYS) w[k] = g.abs[k] || 0
+      // Goal tables replace the weights, but the softcap is a game mechanic —
+      // it discounts AC here too, or Any Slot outbids the real armor slots.
+      if (this.state.acCap) w.ACRET = softcapRet(this.state.trio)
+      return w
+    }
     return this.weights()
   }
   usable(ci: Item) {
@@ -656,7 +665,9 @@ export default class App extends Component<{}, State> {
     const is2H = (s: string) => s.startsWith('2H')
     const buildLoadout = (cands: PetCand[], n: number): PetPick[] => {
       const ratio = (c: PetCand) => tierDmg(c.ci.dmg, c.tier) / c.ci.dly
-      const sc = (c: PetCand) => score(c.ci, c.tier, w)
+      // Pets aren't at the character's softcap — score their gear undiscounted.
+      const petW = { ...w, ACRET: 1 }
+      const sc = (c: PetCand) => score(c.ci, c.tier, petW)
       const used = new Set<PetCand>()
       const picks: PetPick[] = []
       const wpnBadge = (c: PetCand) => tierDmg(c.ci.dmg, c.tier) + '/' + c.ci.dly
@@ -727,7 +738,7 @@ export default class App extends Component<{}, State> {
             style={{ padding: '9px 14px', borderRadius: 'var(--radius)', border: '1px solid var(--accent)', background: 'var(--accent)', color: 'var(--accentText)', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
             {st.copied ? 'Copied!' : 'Share'}
           </button>
-          <button className="eq-del" onClick={() => { this.invText = null; this.set({ trio: [], inv: null, invName: '', browseOwned: false, weightOv: {}, wpnOff: [], obtOff: DEFAULT_OBT_OFF, charLevel: 50, preset: 'balanced', goal: 'weights', tab: 'slots', wnonce: st.wnonce + 1 }) }}
+          <button className="eq-del" onClick={() => { this.invText = null; this.set({ trio: [], inv: null, invName: '', browseOwned: false, weightOv: {}, acCap: false, wpnOff: [], obtOff: DEFAULT_OBT_OFF, charLevel: 50, preset: 'balanced', goal: 'weights', tab: 'slots', wnonce: st.wnonce + 1 }) }}
             style={{ padding: '9px 14px', borderRadius: 'var(--radius)', border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)', cursor: 'pointer', fontSize: 13 }}>
             Reset
           </button>
@@ -911,6 +922,10 @@ export default class App extends Component<{}, State> {
                   </button>
                 ))}
               </div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '0 16px 12px', fontSize: 12, color: 'var(--muted)', cursor: 'pointer' }}>
+                <input type="checkbox" checked={st.acCap} onChange={ev => this.set({ acCap: ev.target.checked })} />
+                At AC mitigation softcap — non-shield AC counts {st.acCap ? (w.ACRET !== undefined ? '×' + w.ACRET : 'per your manual AC override') : 'at your trio’s post-cap return'}
+              </label>
               {st.weightsOpen && (
                 <div style={{ padding: '0 16px 14px', borderTop: '1px solid var(--border)' }}>
                   <div style={{ fontSize: 11.5, color: 'var(--muted)', margin: '10px 0', lineHeight: 1.5 }}>
@@ -927,7 +942,7 @@ export default class App extends Component<{}, State> {
                       </label>
                     ))}
                   </div>
-                  <button className="eq-ghost" onClick={() => this.set({ weightOv: {}, preset: 'balanced', wnonce: st.wnonce + 1 })}
+                  <button className="eq-ghost" onClick={() => this.set({ weightOv: {}, preset: 'balanced', acCap: false, wnonce: st.wnonce + 1 })}
                     style={{ marginTop: 10, padding: '7px 12px', borderRadius: 'var(--radius)', border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)', cursor: 'pointer', fontSize: 12 }}>
                     Reset to class defaults
                   </button>

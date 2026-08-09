@@ -158,8 +158,28 @@ export function parseInv(text: string): InvEntry[] {
 export const tierStat = (v: number, tier: number) => (v > 0 ? v + Math.max(Math.floor(v * 0.10 * tier), tier) : v)
 export const tierDmg = (dmg: number, tier: number) => dmg + Math.floor(dmg * 0.10 * tier)
 
+// Post-softcap AC returns per class — EQEmu GetSoftcapReturns() (zone/
+// attack.cpp), which took them from the live dev post. EQL runs the live
+// softcap tables (the client's displayed cap for a MNK/SHD/SHM trio at 47,
+// 386, matches EQEmu's PAL/SHD column exactly). Returns are per-wearer, so
+// the trio blends them like every other weight.
+export const AC_SOFTCAP_RET: Record<string, number> = {
+  WAR: 0.35, PAL: 0.33, SHD: 0.33, RNG: 0.315, CLR: 0.3, BRD: 0.3, MNK: 0.3,
+  ROG: 0.28, SHM: 0.28, BST: 0.28, BER: 0.28, DRU: 0.265,
+  NEC: 0.25, WIZ: 0.25, MAG: 0.25, ENC: 0.25,
+}
+export const softcapRet = (trio: string[]) =>
+  !trio.length ? 0.3 : r2(trio.reduce((s, c) => s + (AC_SOFTCAP_RET[c] ?? 0.3), 0) / trio.length)
+// Non-shield AC scales by the post-cap return; shield AC grows the cap 1:1 in
+// EQEmu's ACSum, so it never diminishes. Shared by score() and parts().
+export const acRet = (ci: Item, w: Weights) => (ci.skill === 'Shield' ? 1 : w.ACRET ?? 1)
+
 // Effective weights: trio blend × preset multiplier, then manual overrides win.
-export function blendWeights(trio: string[], presetId: string, overrides: Weights): Weights {
+// acCap: the character sits at the client's mitigation softcap, so further
+// worn AC returns only the trio-blended fraction above — carried as w.ACRET
+// and applied in score() via acRet(). A manual AC override wins outright: it
+// sets the exact effective AC value, so no ACRET rides along with it.
+export function blendWeights(trio: string[], presetId: string, overrides: Weights, acCap = false): Weights {
   const p = PRESETS.find(x => x.id === presetId) || PRESETS[0]
   const w: Weights = {}
   for (const k of KEYS) {
@@ -167,6 +187,7 @@ export function blendWeights(trio: string[], presetId: string, overrides: Weight
     const base = !trio.length ? 1 : trio.reduce((s, c) => s + (W[c][k] || 0), 0) / trio.length
     w[k] = r2(base * (p.mult[k] ?? 1))
   }
+  if (acCap && overrides.AC === undefined) w.ACRET = softcapRet(trio)
   return w
 }
 
@@ -178,7 +199,7 @@ export const wpnActive = (slot: string | undefined, skill: string) =>
 export function score(ci: Item, tier: number, w: Weights, slot?: string): number {
   // HP/mana score 0.2/point: at equal weights 1 AC = 5 HP (tank-community
   // consensus) and 10 mana = 1 WIS/INT when w.MANA = w.WIS/2 (1 stat ≈ 10 mana).
-  let s = tierStat(ci.ac, tier) * w.AC
+  let s = tierStat(ci.ac, tier) * w.AC * acRet(ci, w)
     + tierStat(ci.hp, tier) * 0.2 * w.HP
     + tierStat(ci.mana, tier) * 0.2 * w.MANA
   for (const k of STAT_KEYS) {
@@ -245,7 +266,10 @@ export function parts(ci: Item, tier: number, w: Weights, slot?: string): Part[]
     add('DPS', '(2×' + d + 'dmg + ' + b + ' bonus)/' + ci.dly + 'dly × 10' + (rangedSkill(ci.skill) ? ' × 0.5 ranged' : '') + ' × ' + r2(w.DPS) + ' dps',
       ((2 * d + b) / ci.dly) * 10 * (rangedSkill(ci.skill) ? 0.5 : 1) * w.DPS)
   }
-  if (ci.ac) add('AC', 'AC ' + tierStat(ci.ac, tier) + ' × ' + r2(w.AC), tierStat(ci.ac, tier) * w.AC)
+  if (ci.ac) {
+    const ret = acRet(ci, w)
+    add('AC', 'AC ' + tierStat(ci.ac, tier) + ' × ' + r2(w.AC) + (ret < 1 ? ' × ' + ret + ' softcap' : ''), tierStat(ci.ac, tier) * w.AC * ret)
+  }
   for (const k of STAT_KEYS) {
     const v = ci.stats[k] || 0
     if (v) add(k, k + ' ' + (v > 0 ? tierStat(v, tier) : v) + ' × ' + r2(w[k] || 0), (v > 0 ? tierStat(v, tier) : v) * (w[k] || 0))
