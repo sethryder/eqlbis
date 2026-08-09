@@ -83,6 +83,26 @@ assert.equal(r2(score({ ...wpn, effect: 'Gate (Any Slot/Can Equip, Casting Time:
 // scored for the Range slot is a stat stick; a bow in Range keeps its credit
 assert.equal(score({ ...wpn, skill: 'Piercing' }, 0, flat, 'Range'), 0)
 assert.equal(r2(score({ ...wpn, skill: 'Archery' }, 0, flat, 'Range')), 3.6) // (10+8)/25×10×0.5
+// Never-shoot builds (w.RANGED = 0): bows/throwing lose DPS credit but keep
+// stats; melee weapon credit is untouched
+const noRng = { ...flat, RANGED: 0 }
+assert.equal(score({ ...wpn, skill: 'Archery' }, 0, noRng, 'Range'), 0)
+assert.equal(score({ ...wpn, skill: 'Archery', stats: { STA: 4 } }, 0, noRng, 'Range'), 4)
+assert.equal(r2(score(wpn, 0, noRng)), 7.2)
+assert.equal(blendWeights(['MNK'], 'balanced', {}, false, true).RANGED, 0)
+assert.equal(blendWeights(['MNK'], 'balanced', {}, false, false).RANGED, undefined)
+// ...and combat procs on ranged weapons are muted too (they only fire when
+// shot); melee weapon and worn armor procs keep their credit
+assert.equal(score({ ...wpn, skill: 'Archery', effect: 'Ykesha (Combat, Casting Time: Instant)' }, 0, noRng, 'Range'), 0)
+assert.equal(r2(score({ ...wpn, effect: 'Ykesha (Combat, Casting Time: Instant)' }, 0, noRng)), 9.2)
+assert.equal(score({ ...item, ac: 0, stats: {}, effect: 'Anarchy (Combat)' }, 0, noRng, 'Chest'), 2)
+{
+  const bow = { ...wpn, skill: 'Archery', stats: { STA: 4 }, effect: 'Ykesha (Combat, Casting Time: Instant)' }
+  for (const wx of [noRng, { ...flat, RANGED: 0.5 }]) {
+    const sum = parts(bow, 0, wx, 'Range').reduce((s, p) => s + p.val, 0)
+    assert.ok(Math.abs(sum - score(bow, 0, wx, 'Range')) < 1e-9, 'noRanged parts drift')
+  }
+}
 // Worn haste: 21% × 2.5 × w.DPS(1) = 52.5; flat +1%/tier -> 27 × 2.5 = 67.5
 const sash: Item = { ...item, name: 'Test Sash', ac: 0, stats: {}, haste: 21 }
 assert.equal(score(sash, 0, flat), 52.5)

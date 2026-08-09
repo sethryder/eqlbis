@@ -90,6 +90,10 @@ export const STAT_KEYS = ['STR', 'STA', 'AGI', 'DEX', 'WIS', 'INT', 'CHA']
 export const dmgBonus = (skill: string, dly: number) =>
   skill.startsWith('2H') ? (dly >= 28 ? 14 : 9) : 8
 export const rangedSkill = (s: string) => s === 'Archery' || s.startsWith('Throwing')
+// A never-shoot build (w.RANGED = 0) mutes bow/throwing white damage AND their
+// combat procs — both only happen when the weapon is actually fired. Melee
+// weapons and worn armor procs are untouched. Shared by score() and parts().
+export const rangedOn = (skill: string, w: Weights) => (rangedSkill(skill) ? w.RANGED ?? 1 : 1)
 
 // Worn regen effects to per-tick values: Flowing Thought N = N mana/tick (any
 // tier), Fungal Regrowth (Fungi) = 15 HP/tick, worn Regeneration = 9 HP/tick
@@ -179,7 +183,9 @@ export const acRet = (ci: Item, w: Weights) => (ci.skill === 'Shield' ? 1 : w.AC
 // worn AC returns only the trio-blended fraction above — carried as w.ACRET
 // and applied in score() via acRet(). A manual AC override wins outright: it
 // sets the exact effective AC value, so no ACRET rides along with it.
-export function blendWeights(trio: string[], presetId: string, overrides: Weights, acCap = false): Weights {
+// noRanged: the build never actually shoots — bows/throwing keep their stats
+// but get no DPS credit (w.RANGED = 0 zeroes the ranged term in score()).
+export function blendWeights(trio: string[], presetId: string, overrides: Weights, acCap = false, noRanged = false): Weights {
   const p = PRESETS.find(x => x.id === presetId) || PRESETS[0]
   const w: Weights = {}
   for (const k of KEYS) {
@@ -188,6 +194,7 @@ export function blendWeights(trio: string[], presetId: string, overrides: Weight
     w[k] = r2(base * (p.mult[k] ?? 1))
   }
   if (acCap && overrides.AC === undefined) w.ACRET = softcapRet(trio)
+  if (noRanged) w.RANGED = 0
   return w
 }
 
@@ -212,13 +219,13 @@ export function score(ci: Item, tier: number, w: Weights, slot?: string): number
     // so the score is white-DPS × w.DPS. Ranged counts half: bow/thrown damage
     // is halved in-game and pre-AA archery is utility-grade.
     const d = tierDmg(ci.dmg, tier)
-    s += ((2 * d + dmgBonus(ci.skill, ci.dly)) / ci.dly) * 10 * (rangedSkill(ci.skill) ? 0.5 : 1) * w.DPS
+    s += ((2 * d + dmgBonus(ci.skill, ci.dly)) / ci.dly) * 10 * (rangedSkill(ci.skill) ? 0.5 : 1) * rangedOn(ci.skill, w) * w.DPS
   }
   // Combat procs fire ~1–2/min regardless of delay; a typical 50–100dd proc
   // ≈ 2 DPS. Flat tiebreaker credit — proc text is prose, not parseable.
   // Weapon procs need the weapon to swing in the viewed slot; worn procs on
   // armor fire off the wearer's own swings, so they count in any slot.
-  if (ci.effect && ci.effect.includes('(Combat') && (ci.dmg && ci.dly ? wpnActive(slot, ci.skill) : true)) s += 2 * w.DPS
+  if (ci.effect && ci.effect.includes('(Combat') && (ci.dmg && ci.dly ? wpnActive(slot, ci.skill) : true)) s += 2 * rangedOn(ci.skill, w) * w.DPS
   // 1% worn haste = 2.5 × DPS-weight points. Grounded in community parse math
   // (1% haste ≈ 1% auto-attack DPS ≈ 10 STR/ATK): sized so FBSS beats any pure
   // stat belt for melee and 41% belts rank near-BiS, matching P99/TAKP lists.
@@ -262,9 +269,9 @@ export function parts(ci: Item, tier: number, w: Weights, slot?: string): Part[]
   const P: Part[] = []
   const add = (key: string, label: string, val: number) => { if (val) P.push({ key, label, val }) }
   if (ci.dmg && ci.dly && wpnActive(slot, ci.skill)) {
-    const d = tierDmg(ci.dmg, tier), b = dmgBonus(ci.skill, ci.dly)
-    add('DPS', '(2×' + d + 'dmg + ' + b + ' bonus)/' + ci.dly + 'dly × 10' + (rangedSkill(ci.skill) ? ' × 0.5 ranged' : '') + ' × ' + r2(w.DPS) + ' dps',
-      ((2 * d + b) / ci.dly) * 10 * (rangedSkill(ci.skill) ? 0.5 : 1) * w.DPS)
+    const d = tierDmg(ci.dmg, tier), b = dmgBonus(ci.skill, ci.dly), ro = rangedOn(ci.skill, w)
+    add('DPS', '(2×' + d + 'dmg + ' + b + ' bonus)/' + ci.dly + 'dly × 10' + (rangedSkill(ci.skill) ? ' × 0.5 ranged' : '') + (ro !== 1 ? ' × ' + r2(ro) + ' never-shoot' : '') + ' × ' + r2(w.DPS) + ' dps',
+      ((2 * d + b) / ci.dly) * 10 * (rangedSkill(ci.skill) ? 0.5 : 1) * ro * w.DPS)
   }
   if (ci.ac) {
     const ret = acRet(ci, w)
@@ -275,7 +282,10 @@ export function parts(ci: Item, tier: number, w: Weights, slot?: string): Part[]
     if (v) add(k, k + ' ' + (v > 0 ? tierStat(v, tier) : v) + ' × ' + r2(w[k] || 0), (v > 0 ? tierStat(v, tier) : v) * (w[k] || 0))
   }
   if (ci.haste) add('Haste', 'Haste ' + (ci.haste + tier) + '% × 2.5 × ' + r2(w.DPS), hasteTerm(ci.haste, tier, w))
-  if (ci.effect && ci.effect.includes('(Combat') && (ci.dmg && ci.dly ? wpnActive(slot, ci.skill) : true)) add('Proc', 'Combat proc ≈ 2 dps × ' + r2(w.DPS), 2 * w.DPS)
+  if (ci.effect && ci.effect.includes('(Combat') && (ci.dmg && ci.dly ? wpnActive(slot, ci.skill) : true)) {
+    const ro = rangedOn(ci.skill, w)
+    add('Proc', 'Combat proc ≈ 2 dps' + (ro !== 1 ? ' × ' + r2(ro) + ' never-shoot' : '') + ' × ' + r2(w.DPS), 2 * ro * w.DPS)
+  }
   if (ci.focus) add('Focus', 'Focus effect + 10 × ' + r2(w.MANA || 0) + ' mana wt', 10 * (w.MANA || 0))
   if (ci.hp) add('HP', 'HP ' + tierStat(ci.hp, tier) + ' × 0.2 × ' + r2(w.HP), tierStat(ci.hp, tier) * 0.2 * w.HP)
   if (ci.mana) add('Mana', 'Mana ' + tierStat(ci.mana, tier) + ' × 0.2 × ' + r2(w.MANA), tierStat(ci.mana, tier) * 0.2 * w.MANA)
