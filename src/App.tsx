@@ -93,13 +93,14 @@ const chipOff: CSSProperties = { ...pillBase, border: '1px solid var(--border)',
 const chipOn: CSSProperties = { ...pillBase, border: '1px solid var(--accent)', background: 'var(--accent)', color: 'var(--accentText)', fontWeight: 600 }
 const numInput: CSSProperties = { border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--bg)', color: 'var(--text)', fontFamily: MONO, fontSize: 12 }
 const slotGrid: CSSProperties = { display: 'grid', gridTemplateColumns: '96px minmax(180px,1fr) minmax(180px,1fr) minmax(200px,1.15fr)', gap: 14 }
+const MAX_TIER = 10 // server's max item merge level
 const stepBtn: CSSProperties = { width: 22, height: 22, display: 'grid', placeItems: 'center', border: '1px solid var(--border)', borderRadius: 4, background: 'var(--bg)', color: 'var(--text)', cursor: 'pointer', fontSize: 12, padding: 0, lineHeight: 1 }
 const effSecHead: CSSProperties = { padding: '9px 18px', background: 'var(--panel2)', borderBottom: '1px solid var(--border)', fontSize: 10, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--muted)' }
 
 type State = {
   mode: 'dark' | 'light'; trio: string[]; tab: 'slots' | 'upgrades' | 'browse' | 'effects' | 'pets'; petSel: string
   catalog: Item[]; catalogLoaded: boolean
-  inv: InvEntry[] | null; invName: string; sources: Record<InvSource, boolean>
+  inv: InvEntry[] | null; invName: string; sources: Record<InvSource, boolean>; simTier: number
   weightOv: Weights; weightsOpen: boolean; acCap: boolean; noRanged: boolean; shieldSec: boolean; browseSlot: string; charLevel: number; effView: 'owned' | 'all'
   browseSearch: string; browseSort: string; browseOwned: boolean; browseSell: boolean
   compare: { name: string; tier: number; slot: string }[]
@@ -111,7 +112,7 @@ type State = {
 export default class App extends Component<{}, State> {
   state: State = {
     mode: 'dark', trio: [], tab: 'slots', petSel: '', catalog: [], catalogLoaded: false,
-    inv: null, invName: '', sources: { equipped: true, bags: true, bank: true, stash: true, hoard: true, depot: true },
+    inv: null, invName: '', sources: { equipped: true, bags: true, bank: true, stash: true, hoard: true, depot: true }, simTier: 0,
     weightOv: {}, weightsOpen: false, acCap: false, noRanged: false, shieldSec: false, browseSlot: 'Primary', charLevel: 50, effView: 'owned', compare: [],
     browseSearch: '', browseSort: 'rank', browseOwned: false, browseSell: false,
     wpnOff: [], obtOff: DEFAULT_OBT_OFF, preset: 'balanced', goal: 'weights', copied: false, wnonce: 0,
@@ -171,6 +172,7 @@ export default class App extends Component<{}, State> {
           if (draft.petSel && PETS.some(p => p.id === draft.petSel)) next.petSel = draft.petSel
         }
         if (draft.sources) next.sources = { ...this.state.sources, ...draft.sources }
+        if (draft.simTier) next.simTier = Math.max(0, Math.min(MAX_TIER, +draft.simTier || 0))
         if (draft.invText) { next.inv = parseInv(draft.invText); next.invName = draft.invName || ''; this.invText = draft.invText }
       }
       this.setState(next as State, () => this.setState(s => ({ wnonce: s.wnonce + 1 })))
@@ -194,7 +196,7 @@ export default class App extends Component<{}, State> {
       localStorage.setItem('eqlbis.draft.v1', JSON.stringify({
         v: 2, trio: this.state.trio, sources: this.state.sources, weightOv: this.state.weightOv, acCap: this.state.acCap, noRanged: this.state.noRanged, shieldSec: this.state.shieldSec,
         charLevel: this.state.charLevel, wpnOff: this.state.wpnOff, obtOff: this.state.obtOff, preset: this.state.preset, goal: this.state.goal,
-        invText: this.invText, invName: this.state.invName, petSel: this.state.petSel,
+        invText: this.invText, invName: this.state.invName, petSel: this.state.petSel, simTier: this.state.simTier,
       }))
     } catch (e) {}
   }
@@ -458,6 +460,12 @@ export default class App extends Component<{}, State> {
     const st = this.state, idx = this.catIndex(), w = this.weights(), gw = this.goalWeights()
     const trio = st.trio
     const inv = st.inv || []
+    // Simulate motes (By Slot / Upgrades views only): owned gear scores and
+    // displays as at least +simTier, to show what's worth leveling before
+    // spending motes. Everything that describes real inventory — sell advice,
+    // effects, pet gear, the Compare tab's equipped baseline — keeps real
+    // tiers, so entries are never cloned; the sim is this accessor.
+    const simT = (e: InvEntry) => st.simTier ? Math.max(e.tier, st.simTier) : e.tier
     const known = (e: InvEntry) => idx.get(e.base.toLowerCase())
     const pool = inv.filter(e => st.sources[e.source])
     const ownedSet = new Set(pool.map(e => e.base.toLowerCase()))
@@ -480,7 +488,7 @@ export default class App extends Component<{}, State> {
         for (const e of pool) {
           const ci = known(e)
           if (!ci || !slotFits(ci, slot) || !this.usable(ci) || !wpnOk(ci)) continue
-          cands.push({ e, ci, sc: score(ci, e.tier, wRow, slot), rk: rankScore(ci, e.tier, wRow, slot, trio), slot, inSlot: e.source === 'equipped' && e.loc === slot })
+          cands.push({ e, ci, sc: score(ci, simT(e), wRow, slot), rk: rankScore(ci, simT(e), wRow, slot, trio), slot, inSlot: e.source === 'equipped' && e.loc === slot })
         }
       }
       // Worn haste never stacks — only the highest item counts. Keep haste
@@ -490,10 +498,10 @@ export default class App extends Component<{}, State> {
       // candidate's rank, equal-haste ties included. Rank only: displayed
       // scores stay raw so badges and the below-equipped tag compare like
       // for like; the dedup decides who claims a slot, not what items show.
-      const hasteOf = (c: { ci: Item; e: InvEntry }) => c.ci.haste ? c.ci.haste + c.e.tier : 0
+      const hasteOf = (c: { ci: Item; e: InvEntry }) => c.ci.haste ? c.ci.haste + simT(c.e) : 0
       let keeper: (typeof cands)[0] | null = null
       for (const c of cands) if (hasteOf(c) && (!keeper || hasteOf(c) > hasteOf(keeper) || (hasteOf(c) === hasteOf(keeper) && c.rk > keeper.rk))) keeper = c
-      for (const c of cands) if (c.ci.haste && keeper && c.e !== keeper.e) c.rk -= hasteTerm(c.ci.haste, c.e.tier, c.slot === 'Any Slot' ? gw : w)
+      for (const c of cands) if (c.ci.haste && keeper && c.e !== keeper.e) c.rk -= hasteTerm(c.ci.haste, simT(c.e), c.slot === 'Any Slot' ? gw : w)
       cands.sort((a, b) => b.rk - a.rk || (b.inSlot ? 1 : 0) - (a.inSlot ? 1 : 0))
       const used = new Set<InvEntry>()
       for (const c of cands) {
@@ -513,9 +521,9 @@ export default class App extends Component<{}, State> {
       const eqEntries = inv.filter(e => e.source === 'equipped' && e.loc === slot)
       const eq = eqEntries.map(e => {
         const ci = known(e)
-        const base = { name: e.base, tier: e.tier, ci }
+        const base = { name: e.base, tier: simT(e), ci }
         return ci
-          ? { ...base, ...this.dispItem(ci, e.tier, wRow, [], slot) }
+          ? { ...base, ...this.dispItem(ci, simT(e), wRow, [], slot) }
           : { ...base, ...this.tileFor('Misc', e.base, 0), chips: [{ txt: 'no catalog data', color: 'var(--muted)' }], hasScore: false, scoreText: '', tip: [] as TipLine[] }
       })
       const eqNames = eqEntries.map(e => e.base.toLowerCase())
@@ -524,15 +532,15 @@ export default class App extends Component<{}, State> {
       const nWant = slot === 'Any Slot' ? 3 : (slot === 'Ear' || slot === 'Wrist' || slot === 'Fingers') ? 2 : 1
       // Equipped items ranked best-first, keeping the item so the "why better"
       // diff can name what a candidate displaces.
-      const eqRanked = eqEntries.flatMap(e => { const ci = known(e); return ci ? [{ ci, tier: e.tier, sc: score(ci, e.tier, wRow, slot) }] : [] }).sort((a, b) => b.sc - a.sc)
+      const eqRanked = eqEntries.flatMap(e => { const ci = known(e); return ci ? [{ ci, tier: simT(e), sc: score(ci, simT(e), wRow, slot) }] : [] }).sort((a, b) => b.sc - a.sc)
       const eqScores = eqRanked.map(x => x.sc)
-      const eqRks = eqEntries.map(e => { const ci = known(e); return ci ? rankScore(ci, e.tier, wRow, slot, trio) : 0 }).sort((a, b) => b - a)
+      const eqRks = eqEntries.map(e => { const ci = known(e); return ci ? rankScore(ci, simT(e), wRow, slot, trio) : 0 }).sort((a, b) => b - a)
       // Effective ratio on the familiar dmg/dly scale, but damage-bonus aware
       // — (2×dmg + bonus)/(2×dly) — so the "ratio +X" label agrees with the
       // rankScore boost that decides upgrade-ness (the bonus is mainhand-only,
       // so Secondary's ratio drops it, exactly like the boost does).
       const effRatio = (ci: Item, tier: number) => ci.dmg && ci.dly ? (2 * tierDmg(ci.dmg, tier) + (slot === 'Primary' ? dmgBonus(ci.skill, ci.dly) : 0)) / (2 * ci.dly) : 0
-      const bestEqRatio = Math.max(0, ...eqEntries.map(e => { const ci = known(e); return ci ? effRatio(ci, e.tier) : 0 }))
+      const bestEqRatio = Math.max(0, ...eqEntries.map(e => { const ci = known(e); return ci ? effRatio(ci, simT(e)) : 0 }))
       const tops = st.catalog
         .filter(ci => slotFits(ci, slot) && this.usable(ci) && lvlOk(ci) && wpnOk(ci) && obtOk(ci))
         .map(ci => ({ ci, sc: score(ci, 0, wRow, slot), rk: rankScore(ci, 0, wRow, slot, trio) }))
@@ -564,7 +572,7 @@ export default class App extends Component<{}, State> {
         return {
           ...p, isEq,
           belowEq: !isEq && eqEntries.length > 0 && p.sc < (eqScores[i] || 0),
-          why: !isEq && vs && vs.ci.name !== p.ci.name ? this.whyLines(p.ci, p.e.tier, vs.ci, vs.tier, wRow, slot) : [],
+          why: !isEq && vs && vs.ci.name !== p.ci.name ? this.whyLines(p.ci, simT(p.e), vs.ci, vs.tier, wRow, slot) : [],
         }
       })
       return {
@@ -759,7 +767,7 @@ export default class App extends Component<{}, State> {
             style={{ padding: '9px 14px', borderRadius: 'var(--radius)', border: '1px solid var(--accent)', background: 'var(--accent)', color: 'var(--accentText)', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
             {st.copied ? 'Copied!' : 'Share'}
           </button>
-          <button className="eq-del" onClick={() => { this.invText = null; this.set({ trio: [], inv: null, invName: '', browseOwned: false, browseSell: false, weightOv: {}, acCap: false, noRanged: false, shieldSec: false, wpnOff: [], obtOff: DEFAULT_OBT_OFF, charLevel: 50, preset: 'balanced', goal: 'weights', tab: 'slots', wnonce: st.wnonce + 1 }) }}
+          <button className="eq-del" onClick={() => { this.invText = null; this.set({ trio: [], inv: null, invName: '', simTier: 0, browseOwned: false, browseSell: false, weightOv: {}, acCap: false, noRanged: false, shieldSec: false, wpnOff: [], obtOff: DEFAULT_OBT_OFF, charLevel: 50, preset: 'balanced', goal: 'weights', tab: 'slots', wnonce: st.wnonce + 1 }) }}
             style={{ padding: '9px 14px', borderRadius: 'var(--radius)', border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)', cursor: 'pointer', fontSize: 13 }}>
             Reset
           </button>
@@ -861,6 +869,12 @@ export default class App extends Component<{}, State> {
                         <span style={monoMeta}>{srcCount(key)}</span>
                       </label>
                     ))}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, borderTop: '1px solid var(--border)', paddingTop: 10 }}>
+                      <button style={stepBtn} onClick={() => this.set({ simTier: Math.max(0, st.simTier - 1) })}>−</button>
+                      <span style={{ ...monoMeta, width: 24, textAlign: 'center', color: st.simTier ? 'var(--accent)' : undefined }}>+{st.simTier}</span>
+                      <button style={stepBtn} onClick={() => this.set({ simTier: Math.min(MAX_TIER, st.simTier + 1) })}>+</button>
+                      <span>Simulate owned gear at this tier in By Slot &amp; Upgrades — what's worth leveling before spending motes (+0 = off)</span>
+                    </div>
                   </div>
                 )}
               </div>
@@ -989,6 +1003,8 @@ export default class App extends Component<{}, State> {
               <button style={tabBtn(tab === 'effects')} onClick={setTab('effects')}>Effects{st.inv ? ` (${effRows.length})` : ''}</button>
               {pet && <button style={tabBtn(tab === 'pets')} onClick={setTab('pets')}>Pet Gear</button>}
               <div style={{ flex: 1 }} />
+              {st.simTier > 0 && (tab === 'slots' || tab === 'upgrades') &&
+                <div style={{ ...monoMeta, color: 'var(--accent)', fontWeight: 600, paddingBottom: 10, marginRight: 14 }}>owned gear simulated at +{st.simTier}</div>}
               <div style={{ ...monoMeta, paddingBottom: 10 }}>{trio.length ? 'scored for ' + trio.join(' / ') : 'no trio picked — flat weights, all items shown'}</div>
             </div>
 
@@ -1015,10 +1031,10 @@ export default class App extends Component<{}, State> {
                       <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
                         {r.ownedList.map((p, i) => (
                           <div key={i}>{this.unit(
-                            this.dispItem(p.ci, p.e.tier, wR, [p.isEq ? 'equipped' : p.e.source, ...(p.belowEq ? ['below equipped'] : [])], r.slot),
-                            <>{p.e.base}{this.tierSpan(p.e.tier)}</>,
-                            this.badge(fmt(score(p.ci, p.e.tier, wR, r.slot)), [...this.tipFor(p.ci, p.e.tier, wR, r.slot), ...p.why]),
-                            this.infoTip(p.ci, p.e.tier, p.why))}</div>
+                            this.dispItem(p.ci, simT(p.e), wR, [p.isEq ? 'equipped' : p.e.source, ...(p.belowEq ? ['below equipped'] : [])], r.slot),
+                            <>{p.e.base}{this.tierSpan(simT(p.e))}</>,
+                            this.badge(fmt(score(p.ci, simT(p.e), wR, r.slot)), [...this.tipFor(p.ci, simT(p.e), wR, r.slot), ...p.why]),
+                            this.infoTip(p.ci, simT(p.e), p.why))}</div>
                         ))}
                         {r.ownedList.length === 0 && <div style={{ fontSize: 12, color: 'var(--muted)', paddingTop: 4 }}>{r.noOwnedText}</div>}
                       </div>
@@ -1097,7 +1113,7 @@ export default class App extends Component<{}, State> {
                           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                             <button style={stepBtn} onClick={() => setC(st.compare.map((x, j) => j === i ? { ...x, tier: Math.max(0, x.tier - 1) } : x))}>−</button>
                             <span style={{ ...monoMeta, width: 24, textAlign: 'center' }}>+{c.tier}</span>
-                            <button style={stepBtn} onClick={() => setC(st.compare.map((x, j) => j === i ? { ...x, tier: Math.min(10, x.tier + 1) } : x))}>+</button>
+                            <button style={stepBtn} onClick={() => setC(st.compare.map((x, j) => j === i ? { ...x, tier: Math.min(MAX_TIER, x.tier + 1) } : x))}>+</button>
                           </div>
                           <div style={{ fontFamily: MONO, fontSize: 11.5, fontWeight: 600, color: eqSc && diff > 0 ? 'var(--good)' : 'var(--muted)', minWidth: 48, textAlign: 'right' }}>
                             {eqSc ? (diff >= 0 ? '+' : '') + fmt(diff) : '—'}
