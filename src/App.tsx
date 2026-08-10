@@ -513,6 +513,15 @@ export default class App extends Component<{}, State> {
       }
     }
 
+    // Best Available haste dedup, mirroring Best Owned's: worn haste never
+    // stacks, so only the best obtainable haste item (highest %, then rank)
+    // keeps haste credit in its rank — every other catalog haste candidate
+    // re-ranks without it, so Any Slot stops stacking dead haste items.
+    // Rank only, like Best Owned: displayed scores stay raw.
+    const availHasteKeeper = st.catalog
+      .filter(ci => ci.haste && (ci.slots || []).length > 0 && this.usable(ci) && lvlOk(ci) && wpnOk(ci) && obtOk(ci))
+      .sort((a, b) => (b.haste! - a.haste!) || (rankScore(b, 0, w, b.slots![0], trio) - rankScore(a, 0, w, a.slots![0], trio)))[0]
+
     // ---- per-slot rows ----
     const slotRows = SLOT_TYPES.map(slot => {
       // Any Slot accepts any equippable item, so it ranks by the Any Slot Focus
@@ -543,7 +552,7 @@ export default class App extends Component<{}, State> {
       const bestEqRatio = Math.max(0, ...eqEntries.map(e => { const ci = known(e); return ci ? effRatio(ci, simT(e)) : 0 }))
       const tops = st.catalog
         .filter(ci => slotFits(ci, slot) && this.usable(ci) && lvlOk(ci) && wpnOk(ci) && obtOk(ci))
-        .map(ci => ({ ci, sc: score(ci, 0, wRow, slot), rk: rankScore(ci, 0, wRow, slot, trio) }))
+        .map(ci => ({ ci, sc: score(ci, 0, wRow, slot), rk: rankScore(ci, 0, wRow, slot, trio) - (ci.haste && ci !== availHasteKeeper ? hasteTerm(ci.haste, 0, wRow) : 0) }))
         .sort((a, b) => b.rk - a.rk).slice(0, nWant)
       const availList = tops.map((x, i) => {
         const delta = x.sc - (eqScores[i] || 0)
