@@ -14,6 +14,23 @@ const API = "https://eqlwiki.com/api.php";
 const UA = "EQLBiS-spell-builder/1.0 (eqlbis)";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Wiki descriptions mix HTML into the wikitext: cut at the first block break
+// (<br>, <table>, <p>) — everything after is wiki commentary, not the spell
+// description — then drop <s>struck-out</s> text, bare [http://…] citations,
+// and any stray inline tags.
+const cleanDesc = (raw) =>
+  raw
+    .split(/<\s*(?:br|table|p)\b/i)[0]
+    .replace(/<s\s*>[\s\S]*?<\/s\s*>/gi, "")
+    .replace(/\[https?:\/\/[^\]]*\]/g, "")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\[\[(?:[^\]|]*\|)?([^\]]*)\]\]/g, "$1") // [[link|text]] -> text
+    .replace(/'''?/g, "")
+    .replace(/\s+/g, " ")
+    .replace(/\s+([.,])/g, "$1")
+    .replace(/\.{2,}/g, ".")
+    .trim();
+
 const items = JSON.parse(readFileSync(new URL("../public/eql-bis-items.json", import.meta.url)));
 const names = new Set();
 for (const i of items) {
@@ -50,11 +67,7 @@ for (let i = 0; i < titles.length; i += 50) {
     const text = p.revisions?.[0]?.slots?.main?.content ?? "";
     const m = text.match(/\|\s*description\s*=\s*([\s\S]*?)\n\s*\|/);
     if (!m) continue;
-    const desc = m[1]
-      .replace(/\[\[(?:[^\]|]*\|)?([^\]]*)\]\]/g, "$1") // [[link|text]] -> text
-      .replace(/'''?/g, "")
-      .replace(/\s+/g, " ")
-      .trim();
+    const desc = cleanDesc(m[1]);
     if (desc) out[back.get(p.title) ?? p.title] = desc;
   }
   console.error(`${Math.min(i + 50, titles.length)}/${titles.length} fetched, ${Object.keys(out).length} descriptions`);
