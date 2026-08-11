@@ -101,7 +101,7 @@ type State = {
   mode: 'dark' | 'light'; trio: string[]; tab: 'slots' | 'upgrades' | 'browse' | 'effects' | 'pets'; petSel: string
   catalog: Item[]; catalogLoaded: boolean
   inv: InvEntry[] | null; invName: string; sources: Record<InvSource, boolean>; simTier: number
-  weightOv: Weights; weightsOpen: boolean; acCap: boolean; noRanged: boolean; shieldSec: boolean; browseSlot: string; charLevel: number; effView: 'owned' | 'all'
+  weightOv: Weights; weightsOpen: boolean; acCap: boolean; noRanged: boolean; shieldSec: boolean; browseSlot: string; charLevel: number; effView: 'owned' | 'all'; effClasses: string[]
   browseSearch: string; browseSort: string; browseOwned: boolean; browseSell: boolean
   compare: { name: string; tier: number; slot: string }[]
   wpnOff: string[]; obtOff: string[]; preset: string; goal: string; copied: boolean; wnonce: number
@@ -113,7 +113,7 @@ export default class App extends Component<{}, State> {
   state: State = {
     mode: 'dark', trio: [], tab: 'slots', petSel: '', catalog: [], catalogLoaded: false,
     inv: null, invName: '', sources: { equipped: true, bags: true, bank: true, stash: true, hoard: true, depot: true }, simTier: 0,
-    weightOv: {}, weightsOpen: false, acCap: false, noRanged: false, shieldSec: false, browseSlot: 'Primary', charLevel: 50, effView: 'owned', compare: [],
+    weightOv: {}, weightsOpen: false, acCap: false, noRanged: false, shieldSec: false, browseSlot: 'Primary', charLevel: 50, effView: 'owned', effClasses: [], compare: [],
     browseSearch: '', browseSort: 'rank', browseOwned: false, browseSell: false,
     wpnOff: [], obtOff: DEFAULT_OBT_OFF, preset: 'balanced', goal: 'weights', copied: false, wnonce: 0,
     iconIds: null, spellDesc: {},
@@ -666,6 +666,14 @@ export default class App extends Component<{}, State> {
       if ((bestFocus.get(fam)?.tier ?? -1) < tier) bestFocus.set(fam, { ci, tier })
     }
     const spellOf = (t: string) => t.replace(/\s*\(.*/, '')
+    // Extracted effects keep their source item's class restriction: a proc off
+    // a BRD-only blade can only be socketed into something bards can use. So
+    // an effect "fits" a target item when everyone allowed on the target is
+    // also allowed on the source (ALL-class sources fit anything). The chip
+    // filter holds the target's class list; when set it replaces the trio
+    // check — the source item just has to be looted, not worn.
+    const effClassOk = (ci: Item) => !ci.classes?.length || st.effClasses.every(c => ci.classes.includes(c))
+    const classChip = (ci: Item) => ({ txt: ci.classes?.length ? ci.classes.join(' ') : 'ALL', color: 'var(--muted)' })
     type EffAll = { text: string; ci: Item }
     // All-in-game view: every obtainable effect, grouped by spell name (focus
     // family for focuses, tiers sorted best-first).
@@ -679,7 +687,7 @@ export default class App extends Component<{}, State> {
         g.set(key, l)
       }
       for (const ci of st.catalog) {
-        if (!this.usable(ci) || !lvlOk(ci) || !obtOk(ci)) continue
+        if (!(st.effClasses.length ? effClassOk(ci) : this.usable(ci)) || !lvlOk(ci) || !obtOk(ci)) continue
         if (ci.focus) push('Focus', ci.focus, ci)
         if (ci.effect) push(effKind(ci.effect), ci.effect, ci)
       }
@@ -1159,9 +1167,22 @@ export default class App extends Component<{}, State> {
                   <button style={st.effView === 'owned' ? chipOn : chipOff} onClick={() => this.setState({ effView: 'owned' })}>Your gear</button>
                   <button style={st.effView === 'all' ? chipOn : chipOff} onClick={() => this.setState({ effView: 'all' })}>All in game</button>
                   <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
-                    {st.effView === 'owned' ? 'effects on gear you own · focus rows flag when a higher tier is obtainable' : 'every effect obtainable by your trio, grouped by spell'}
+                    {st.effView === 'owned' ? 'effects on gear you own · focus rows flag when a higher tier is obtainable' : st.effClasses.length ? 'effects that fit a ' + st.effClasses.join('/') + ' item, grouped by spell' : 'every effect obtainable by your trio, grouped by spell'}
                   </div>
                 </div>
+                {st.effView === 'all' && (
+                  <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6, padding: '10px 18px', borderBottom: '1px solid var(--border)', flex: 'none' }}>
+                    <span style={{ fontSize: 11.5, color: 'var(--muted)', marginRight: 4 }} title="Extracted effects keep the source item's class limits — pick every class your target item allows to see only effects that can go into it.">Fits an item usable by:</span>
+                    {CLASSES.map(c => {
+                      const on = st.effClasses.includes(c.code)
+                      return (
+                        <button key={c.code} style={on ? chipOn : chipOff} title={c.name}
+                          onClick={() => this.setState({ effClasses: on ? st.effClasses.filter(x => x !== c.code) : [...st.effClasses, c.code] })}>{c.code}</button>
+                      )
+                    })}
+                    {st.effClasses.length > 0 && <button style={chipOff} onClick={() => this.setState({ effClasses: [] })}>clear</button>}
+                  </div>
+                )}
                 <div className="eqs" style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
                 {st.effView === 'all' ? (['Clicky', 'Proc', 'Worn', 'Focus'] as const).map(kind => {
                   const groups = allEffGroups(kind)
@@ -1177,6 +1198,7 @@ export default class App extends Component<{}, State> {
                             {list.map((r, i) => this.unit(
                               { ...this.tileFor(r.ci.type, r.ci.name, r.ci.icon || 0), chips: [
                                 { txt: r.text, color: 'var(--accent)' },
+                                classChip(r.ci),
                                 { txt: srcLabel(r.ci), color: 'var(--muted)' },
                                 ...(r.ci.level ? [{ txt: 'lvl ' + r.ci.level + '+', color: 'var(--muted)' }] : []),
                                 ...(ownedSet.has(r.ci.name.toLowerCase()) ? [{ txt: 'owned', color: 'var(--good)' }] : []),
@@ -1201,7 +1223,7 @@ export default class App extends Component<{}, State> {
                         return (
                           <div key={i} style={{ display: 'grid', gridTemplateColumns: 'minmax(200px,1fr) minmax(220px,1.3fr)', gap: 14, padding: '11px 18px', borderBottom: '1px solid var(--border)', alignItems: 'center' }}>
                             {this.unit(
-                              { ...this.tileFor(r.ci.type, r.ci.name, r.ci.icon || 0), chips: [{ txt: (r.ci.slots || []).join(', ').toLowerCase() || r.ci.type.toLowerCase(), color: 'var(--muted)' }, { txt: r.e.source === 'equipped' ? 'equipped' : r.e.source, color: 'var(--muted)' }] },
+                              { ...this.tileFor(r.ci.type, r.ci.name, r.ci.icon || 0), chips: [{ txt: (r.ci.slots || []).join(', ').toLowerCase() || r.ci.type.toLowerCase(), color: 'var(--muted)' }, classChip(r.ci), { txt: r.e.source === 'equipped' ? 'equipped' : r.e.source, color: 'var(--muted)' }] },
                               <>{r.e.base}{this.tierSpan(r.e.tier)}</>,
                               null, this.infoTip(r.ci, r.e.tier))}
                             <div style={{ minWidth: 0 }}>
