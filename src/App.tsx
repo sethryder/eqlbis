@@ -1,6 +1,6 @@
 import { Component, CSSProperties, ReactNode } from 'react'
 import {
-  CLASSES, KEYS, GOALS, PRESETS, SLOT_CAP, SLOT_TYPES, STAT_KEYS, W, WPN_TYPES,
+  CLASSES, EQUIP_LOCS, KEYS, GOALS, PRESETS, SLOT_CAP, SLOT_TYPES, STAT_KEYS, W, WPN_TYPES,
   b64decode, b64encode, blendWeights, dmgBonus, fmt, hasteTerm, parseInv, parts, r2, rankScore, score, sellables, softcapRet, tierDmg, tierStat, whyDiff,
 } from './logic'
 import type { InvEntry, InvSource, Item, Weights } from './logic'
@@ -101,7 +101,7 @@ type State = {
   mode: 'dark' | 'light'; trio: string[]; tab: 'slots' | 'upgrades' | 'browse' | 'effects' | 'pets'; petSel: string
   catalog: Item[]; catalogLoaded: boolean
   inv: InvEntry[] | null; invName: string; sources: Record<InvSource, boolean>; simTier: number
-  weightOv: Weights; weightsOpen: boolean; acCap: boolean; noRanged: boolean; shieldSec: boolean; browseSlot: string; charLevel: number; effView: 'owned' | 'all'; effClasses: string[]
+  weightOv: Weights; weightsOpen: boolean; acCap: boolean; noRanged: boolean; shieldSec: boolean; browseSlot: string; charLevel: number; effView: 'owned' | 'all'; effClasses: string[]; effSlot: string
   browseSearch: string; browseSort: string; browseOwned: boolean; browseSell: boolean
   compare: { name: string; tier: number; slot: string }[]
   wpnOff: string[]; obtOff: string[]; preset: string; goal: string; copied: boolean; wnonce: number
@@ -113,7 +113,7 @@ export default class App extends Component<{}, State> {
   state: State = {
     mode: 'dark', trio: [], tab: 'slots', petSel: '', catalog: [], catalogLoaded: false,
     inv: null, invName: '', sources: { equipped: true, bags: true, bank: true, stash: true, hoard: true, depot: true }, simTier: 0,
-    weightOv: {}, weightsOpen: false, acCap: false, noRanged: false, shieldSec: false, browseSlot: 'Primary', charLevel: 50, effView: 'owned', effClasses: [], compare: [],
+    weightOv: {}, weightsOpen: false, acCap: false, noRanged: false, shieldSec: false, browseSlot: 'Primary', charLevel: 50, effView: 'owned', effClasses: [], effSlot: '', compare: [],
     browseSearch: '', browseSort: 'rank', browseOwned: false, browseSell: false,
     wpnOff: [], obtOff: DEFAULT_OBT_OFF, preset: 'balanced', goal: 'weights', copied: false, wnonce: 0,
     iconIds: null, spellDesc: {},
@@ -642,12 +642,24 @@ export default class App extends Component<{}, State> {
     // from the wiki effect string ("(Combat…)" = proc, "(Worn)" = worn, any
     // other equip/click wording = clicky; focus is its own field) ----
     const effKind = (txt: string) => /\(Combat/.test(txt) ? 'Proc' : /\(Worn/.test(txt) ? 'Worn' : 'Clicky'
+    // Extracted effects keep their source item's class restriction: a proc off
+    // a BRD-only blade can only be socketed into something bards can use. So
+    // an effect "fits" a target item when everyone allowed on the target is
+    // also allowed on the source (ALL-class sources fit anything). The chip
+    // filter holds the target's class list; when set it replaces the trio
+    // check — the source item just has to be looted (or owned), not worn.
+    // Effects also transfer only between items of the same slot, so the slot
+    // filter needs the source to share the target's slot.
+    const effClassOk = (ci: Item) => !ci.classes?.length || st.effClasses.every(c => ci.classes.includes(c))
+    const classChip = (ci: Item) => ({ txt: ci.classes?.length ? ci.classes.join(' ') : 'ALL', color: 'var(--muted)' })
+    const effUsable = (ci: Item) =>
+      (st.effClasses.length ? effClassOk(ci) : this.usable(ci)) && (!st.effSlot || (ci.slots || []).includes(st.effSlot))
     const effRows: { kind: string; text: string; e: InvEntry; ci: Item }[] = []
     {
       const seen = new Set<string>()
       for (const e of pool) {
         const ci = known(e)
-        if (!ci || !this.usable(ci) || seen.has(e.base.toLowerCase())) continue
+        if (!ci || !effUsable(ci) || seen.has(e.base.toLowerCase())) continue
         seen.add(e.base.toLowerCase())
         if (ci.focus) effRows.push({ kind: 'Focus', text: ci.focus, e, ci })
         if (ci.effect) effRows.push({ kind: effKind(ci.effect), text: ci.effect, e, ci })
@@ -666,14 +678,6 @@ export default class App extends Component<{}, State> {
       if ((bestFocus.get(fam)?.tier ?? -1) < tier) bestFocus.set(fam, { ci, tier })
     }
     const spellOf = (t: string) => t.replace(/\s*\(.*/, '')
-    // Extracted effects keep their source item's class restriction: a proc off
-    // a BRD-only blade can only be socketed into something bards can use. So
-    // an effect "fits" a target item when everyone allowed on the target is
-    // also allowed on the source (ALL-class sources fit anything). The chip
-    // filter holds the target's class list; when set it replaces the trio
-    // check — the source item just has to be looted, not worn.
-    const effClassOk = (ci: Item) => !ci.classes?.length || st.effClasses.every(c => ci.classes.includes(c))
-    const classChip = (ci: Item) => ({ txt: ci.classes?.length ? ci.classes.join(' ') : 'ALL', color: 'var(--muted)' })
     type EffAll = { text: string; ci: Item }
     // All-in-game view: every obtainable effect, grouped by spell name (focus
     // family for focuses, tiers sorted best-first).
@@ -687,7 +691,7 @@ export default class App extends Component<{}, State> {
         g.set(key, l)
       }
       for (const ci of st.catalog) {
-        if (!(st.effClasses.length ? effClassOk(ci) : this.usable(ci)) || !lvlOk(ci) || !obtOk(ci)) continue
+        if (!effUsable(ci) || !lvlOk(ci) || !obtOk(ci)) continue
         if (ci.focus) push('Focus', ci.focus, ci)
         if (ci.effect) push(effKind(ci.effect), ci.effect, ci)
       }
@@ -1167,22 +1171,31 @@ export default class App extends Component<{}, State> {
                   <button style={st.effView === 'owned' ? chipOn : chipOff} onClick={() => this.setState({ effView: 'owned' })}>Your gear</button>
                   <button style={st.effView === 'all' ? chipOn : chipOff} onClick={() => this.setState({ effView: 'all' })}>All in game</button>
                   <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
-                    {st.effView === 'owned' ? 'effects on gear you own · focus rows flag when a higher tier is obtainable' : st.effClasses.length ? 'effects that fit a ' + st.effClasses.join('/') + ' item, grouped by spell' : 'every effect obtainable by your trio, grouped by spell'}
+                    {(() => {
+                      const fit = [st.effClasses.join('/'), st.effSlot].filter(Boolean).join(' ')
+                      return st.effView === 'owned'
+                        ? (fit ? 'effects on gear you own that fit a ' + fit + ' item' : 'effects on gear you own · focus rows flag when a higher tier is obtainable')
+                        : (fit ? 'effects that fit a ' + fit + ' item, grouped by spell' : 'every effect obtainable by your trio, grouped by spell')
+                    })()}
                   </div>
                 </div>
-                {st.effView === 'all' && (
-                  <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6, padding: '10px 18px', borderBottom: '1px solid var(--border)', flex: 'none' }}>
-                    <span style={{ fontSize: 11.5, color: 'var(--muted)', marginRight: 4 }} title="Extracted effects keep the source item's class limits — pick every class your target item allows to see only effects that can go into it.">Fits an item usable by:</span>
-                    {CLASSES.map(c => {
-                      const on = st.effClasses.includes(c.code)
-                      return (
-                        <button key={c.code} style={on ? chipOn : chipOff} title={c.name}
-                          onClick={() => this.setState({ effClasses: on ? st.effClasses.filter(x => x !== c.code) : [...st.effClasses, c.code] })}>{c.code}</button>
-                      )
-                    })}
-                    {st.effClasses.length > 0 && <button style={chipOff} onClick={() => this.setState({ effClasses: [] })}>clear</button>}
-                  </div>
-                )}
+                <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6, padding: '10px 18px', borderBottom: '1px solid var(--border)', flex: 'none' }}>
+                  <span style={{ fontSize: 11.5, color: 'var(--muted)', marginRight: 4 }} title="Extracted effects keep the source item's class limits and only transfer between items of the same slot — pick every class your target item allows (and its slot) to see only effects that can go into it.">Fits an item usable by:</span>
+                  {CLASSES.map(c => {
+                    const on = st.effClasses.includes(c.code)
+                    return (
+                      <button key={c.code} style={on ? chipOn : chipOff} title={c.name}
+                        onClick={() => this.setState({ effClasses: on ? st.effClasses.filter(x => x !== c.code) : [...st.effClasses, c.code] })}>{c.code}</button>
+                    )
+                  })}
+                  <span style={{ fontSize: 11.5, color: 'var(--muted)', marginLeft: 6 }}>in slot:</span>
+                  <select value={st.effSlot} onChange={ev => this.setState({ effSlot: ev.target.value })}
+                    style={{ padding: '5px 8px', border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--bg)', color: 'var(--text)', fontSize: 12 }}>
+                    <option value="">any</option>
+                    {EQUIP_LOCS.filter(s => s !== 'Any Slot').map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                  {(st.effClasses.length > 0 || st.effSlot) && <button style={chipOff} onClick={() => this.setState({ effClasses: [], effSlot: '' })}>clear</button>}
+                </div>
                 <div className="eqs" style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
                 {st.effView === 'all' ? (['Clicky', 'Proc', 'Worn', 'Focus'] as const).map(kind => {
                   const groups = allEffGroups(kind)
@@ -1251,7 +1264,9 @@ export default class App extends Component<{}, State> {
                     <div style={{ fontFamily: CINZEL, fontSize: 16, color: 'var(--text)', marginBottom: 6 }}>{st.inv ? 'No effects found' : 'No inventory loaded'}</div>
                     <div style={{ fontSize: 12.5, maxWidth: 340, margin: '0 auto', lineHeight: 1.5 }}>
                       {st.inv
-                        ? 'None of your gear (in the checked sources, usable by your trio) has a click, worn, proc, or focus effect.'
+                        ? (st.effClasses.length || st.effSlot
+                          ? 'None of your gear matches the class/slot filter with a click, worn, proc, or focus effect.'
+                          : 'None of your gear (in the checked sources, usable by your trio) has a click, worn, proc, or focus effect.')
                         : 'Upload an inventory file to see every click, worn, proc, and focus effect on gear you own — or hit All in game to browse the catalog.'}
                     </div>
                   </div>
