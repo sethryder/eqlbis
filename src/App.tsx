@@ -101,7 +101,7 @@ type State = {
   mode: 'dark' | 'light'; trio: string[]; tab: 'slots' | 'upgrades' | 'browse' | 'effects' | 'pets'; petSel: string
   catalog: Item[]; catalogLoaded: boolean
   inv: InvEntry[] | null; invName: string; sources: Record<InvSource, boolean>; simTier: number
-  weightOv: Weights; weightsOpen: boolean; acCap: boolean; noRanged: boolean; shieldSec: boolean; browseSlot: string; charLevel: number; effView: 'owned' | 'all'; effClasses: string[]; effSlot: string
+  weightOv: Weights; weightsOpen: boolean; acCap: boolean; noRanged: boolean; shieldSec: boolean; browseSlot: string; charLevel: number; effView: 'owned' | 'all'; effClasses: string[]; effSlot: string; effQ: string
   browseSearch: string; browseSort: string; browseOwned: boolean; browseSell: boolean
   compare: { name: string; tier: number; slot: string }[]
   wpnOff: string[]; obtOff: string[]; preset: string; goal: string; copied: boolean; wnonce: number
@@ -113,7 +113,7 @@ export default class App extends Component<{}, State> {
   state: State = {
     mode: 'dark', trio: [], tab: 'slots', petSel: '', catalog: [], catalogLoaded: false,
     inv: null, invName: '', sources: { equipped: true, bags: true, bank: true, stash: true, hoard: true, depot: true }, simTier: 0,
-    weightOv: {}, weightsOpen: false, acCap: false, noRanged: false, shieldSec: false, browseSlot: 'Primary', charLevel: 50, effView: 'owned', effClasses: [], effSlot: '', compare: [],
+    weightOv: {}, weightsOpen: false, acCap: false, noRanged: false, shieldSec: false, browseSlot: 'Primary', charLevel: 50, effView: 'owned', effClasses: [], effSlot: '', effQ: '', compare: [],
     browseSearch: '', browseSort: 'rank', browseOwned: false, browseSell: false,
     wpnOff: [], obtOff: DEFAULT_OBT_OFF, preset: 'balanced', goal: 'weights', copied: false, wnonce: 0,
     iconIds: null, spellDesc: {},
@@ -650,6 +650,8 @@ export default class App extends Component<{}, State> {
     // check — the source item just has to be looted (or owned), not worn.
     // Effects also transfer only between items of the same slot, so the slot
     // filter needs the source to share the target's slot.
+    const effQ = st.effQ.trim().toLowerCase()
+    const effQOk = (text: string, ci: Item) => !effQ || text.toLowerCase().includes(effQ) || ci.name.toLowerCase().includes(effQ)
     const effClassOk = (ci: Item) => !ci.classes?.length || st.effClasses.every(c => ci.classes.includes(c))
     const classChip = (ci: Item) => ({ txt: ci.classes?.length ? ci.classes.join(' ') : 'ALL', color: 'var(--muted)' })
     const effUsable = (ci: Item) =>
@@ -661,8 +663,8 @@ export default class App extends Component<{}, State> {
         const ci = known(e)
         if (!ci || !effUsable(ci) || seen.has(e.base.toLowerCase())) continue
         seen.add(e.base.toLowerCase())
-        if (ci.focus) effRows.push({ kind: 'Focus', text: ci.focus, e, ci })
-        if (ci.effect) effRows.push({ kind: effKind(ci.effect), text: ci.effect, e, ci })
+        if (ci.focus && effQOk(ci.focus, ci)) effRows.push({ kind: 'Focus', text: ci.focus, e, ci })
+        if (ci.effect && effQOk(ci.effect, ci)) effRows.push({ kind: effKind(ci.effect), text: ci.effect, e, ci })
       }
       effRows.sort((a, b) => a.text.localeCompare(b.text))
     }
@@ -696,7 +698,7 @@ export default class App extends Component<{}, State> {
         if (ci.effect) push(effKind(ci.effect), ci.effect, ci)
       }
       for (const l of g.values()) l.sort((a, b) => (kind === 'Focus' ? focusFam(b.text).tier - focusFam(a.text).tier : 0) || a.ci.name.localeCompare(b.ci.name))
-      return [...g.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+      return [...g.entries()].filter(([, l]) => l.some(r => effQOk(r.text, r.ci))).sort((a, b) => a[0].localeCompare(b[0]))
     }
 
     // ---- pet gear (tab shown only when the trio has a pet class) ----
@@ -1194,7 +1196,9 @@ export default class App extends Component<{}, State> {
                     <option value="">any</option>
                     {EQUIP_LOCS.filter(s => s !== 'Any Slot').map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
-                  {(st.effClasses.length > 0 || st.effSlot) && <button style={chipOff} onClick={() => this.setState({ effClasses: [], effSlot: '' })}>clear</button>}
+                  <input value={st.effQ} onChange={ev => this.setState({ effQ: ev.target.value })} placeholder="search effect or item…"
+                    style={{ padding: '5px 8px', border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--bg)', color: 'var(--text)', fontSize: 12, width: 180, marginLeft: 6 }} />
+                  {(st.effClasses.length > 0 || st.effSlot || st.effQ) && <button style={chipOff} onClick={() => this.setState({ effClasses: [], effSlot: '', effQ: '' })}>clear</button>}
                 </div>
                 <div className="eqs" style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
                 {st.effView === 'all' ? (['Clicky', 'Proc', 'Worn', 'Focus'] as const).map(kind => {
@@ -1264,8 +1268,8 @@ export default class App extends Component<{}, State> {
                     <div style={{ fontFamily: CINZEL, fontSize: 16, color: 'var(--text)', marginBottom: 6 }}>{st.inv ? 'No effects found' : 'No inventory loaded'}</div>
                     <div style={{ fontSize: 12.5, maxWidth: 340, margin: '0 auto', lineHeight: 1.5 }}>
                       {st.inv
-                        ? (st.effClasses.length || st.effSlot
-                          ? 'None of your gear matches the class/slot filter with a click, worn, proc, or focus effect.'
+                        ? (st.effClasses.length || st.effSlot || st.effQ
+                          ? 'None of your gear matches the current filters with a click, worn, proc, or focus effect.'
                           : 'None of your gear (in the checked sources, usable by your trio) has a click, worn, proc, or focus effect.')
                         : 'Upload an inventory file to see every click, worn, proc, and focus effect on gear you own — or hit All in game to browse the catalog.'}
                     </div>
